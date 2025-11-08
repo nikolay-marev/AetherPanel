@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let reader = null;
     let writer = null;
     let isConnected = false;
-    let startTime = Date.now();
+    let startTime = null;
     let isBlinking = false;
     let currentAngle = 90;
     let isServoMoving = false;
@@ -263,6 +263,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        function updateBoardInfo() {
+            const boardNameElement = document.querySelector('.hardware-info .info-item:nth-child(1) span:last-child');
+            const boardNameEl = document.querySelector('.hardware-header h3');
+            
+            if (boardNameElement && boardNameEl && isConnected) {
+                boardNameElement.textContent = "Arduino Uno R3";
+                boardNameEl.textContent = "Arduino Uno R3";
+            } else if (boardNameElement && boardNameEl && !isConnected) {
+                boardNameElement.textContent = "--";
+                boardNameEl.textContent = "--";
+            }
+        }
+
         async function connectToArduino() {
             try {
                 if (!navigator.serial) {
@@ -282,14 +295,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 writer = textEncoder.writable.getWriter();
                 
                 isConnected = true;
+                startTime = Date.now(); 
                 updateConnectionStatus(true);
+                updateDashboardStats();
                 showToast("✅ Arduino connected", "#4c82ff");
                 
-                await saveArduinoState({
-                    isConnected: true,
-                    lastConnectedBy: currentUser.email,
-                    lastConnectedAt: new Date().toISOString()
-                });
+                readFromArduino();
+                isConnected = true;
+                startTime = Date.now();
+                updateConnectionStatus(true);
+                updateDashboardStats();
+                showToast("✅ Arduino connected", "#4c82ff");
+                
+                updateBoardInfo();
                 
                 readFromArduino();
                 
@@ -298,6 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 showToast("❌ Connection failed", "#ff4c4c");
                 isConnected = false;
                 updateConnectionStatus(false);
+                updateDashboardStats();
             }
         }
 
@@ -315,14 +334,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 serialPort = null;
             }
             isConnected = false;
+            startTime = null; 
             updateConnectionStatus(false);
             showToast("🔌 Arduino disconnected", "#ff4c4c");
-            
-            await saveArduinoState({
-                isConnected: false,
-                lastDisconnectedBy: currentUser.email,
-                lastDisconnectedAt: new Date().toISOString()
-            });
         }
 
         async function readFromArduino() {
@@ -372,49 +386,64 @@ document.addEventListener('DOMContentLoaded', () => {
         function processArduinoData(data) {
             console.log('Received:', data);
             
-            if (data.includes('STATUS:READY')) {
+            if (data.includes('STATUS:READY') || data.includes('READY')) {
                 updateConnectionStatus(true);
+                updateDashboardStats();
+            }
+            else if (data.includes('LED:ON') || data.includes('LED_ON')) {
+                isBlinking = false;
+                currentLedState = 'on';
+                updateLedVisualization('on');
+                updateDashboardStats();
+            }
+            else if (data.includes('LED:OFF') || data.includes('LED_OFF')) {
+                isBlinking = false;
+                currentLedState = 'off';
+                updateLedVisualization('off');
+                updateDashboardStats();
             }
             else if (data.includes('LED:BLINK_STARTED')) {
                 isBlinking = true;
                 currentLedState = 'blink';
                 updateLedVisualization('blink');
-                updateBlinkButtons(true);
+                updateDashboardStats();
             }
-            else if (data.includes('LED:ON')) {
-                isBlinking = false;
-                currentLedState = 'on';
-                updateLedVisualization('on');
-                updateBlinkButtons(false);
-            }
-            else if (data.includes('LED:OFF')) {
-                isBlinking = false;
-                currentLedState = 'off';
-                updateLedVisualization('off');
-                updateBlinkButtons(false);
-            }
-            else if (data.includes('SENSOR:')) {
-                updateSensorData(data);
-            }
-            else if (data.includes('SERVO:')) {
-                updateServoStatusFromArduino(data);
-            }
-            else if (data.includes('SERVO_ANGLE:')) {
-                const angleMatch = data.match(/SERVO_ANGLE:(\d+)/);
+            else if (data.includes('MOVED:') || data.includes('ANGLE:')) {
+                const angleMatch = data.match(/(MOVED|ANGLE):(\d+)/);
                 if (angleMatch) {
-                    currentAngle = parseInt(angleMatch[1]);
+                    currentAngle = parseInt(angleMatch[2]);
+                    isServoMoving = false;
                     updateServoStatus();
                     updateServoVisualization();
+                    updateDashboardStats();
                 }
             }
-            else if (data.includes('SERVO_STATUS:')) {
-                const angleMatch = data.match(/ANGLE=(\d+)/);
-                const targetMatch = data.match(/TARGET=(\d+)/);
+            else if (data.includes('SERVO_STATUS:') || data.includes('STATUS:')) {
+                const angleMatch = data.match(/(ANGLE|STATUS):(\d+)/);
                 if (angleMatch) {
-                    currentAngle = parseInt(angleMatch[1]);
+                    currentAngle = parseInt(angleMatch[2]);
                     updateServoStatus();
                     updateServoVisualization();
+                    updateDashboardStats();
                 }
+            }
+        }
+
+        function updateDashboardStats() {
+            const servoStatusElement = document.getElementById('servo-status');
+            if (servoStatusElement) {
+                servoStatusElement.textContent = `${currentAngle}°`;
+            }
+            
+            const ledStatusElement = document.getElementById('led-status');
+            if (ledStatusElement) {
+                ledStatusElement.textContent = currentLedState === 'on' ? 'On' : 
+                                            currentLedState === 'blink' ? 'Blinking' : 'Off';
+            }
+            
+            const arduinoStatusElement = document.getElementById('arduino-status');
+            if (arduinoStatusElement) {
+                arduinoStatusElement.textContent = isConnected ? "Connected" : "Disconnected";
             }
         }
 
@@ -430,11 +459,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 arduinoDetailStatus.innerHTML = '<div class="status-indicator connected"></div><span>Connected</span>';
                 serverStatus.style.background = "#1f6e4d";
                 document.getElementById('last-ping').textContent = new Date().toLocaleTimeString();
+                
+                const boardNameElement = document.querySelector('.hardware-info .info-item:nth-child(1) span:last-child');
+                if (boardNameElement) {
+                    boardNameElement.textContent = "Arduino Uno R3";
+                }
             } else {
                 statusElement.textContent = "Arduino Offline";
                 arduinoStatus.textContent = "Disconnected";
                 arduinoDetailStatus.innerHTML = '<div class="status-indicator disconnected"></div><span>Disconnected</span>';
                 serverStatus.style.background = "#ff4c4c";
+                document.getElementById('last-ping').textContent = "--";
+                
+                const boardNameElement = document.querySelector('.hardware-info .info-item:nth-child(1) span:last-child');
+                if (boardNameElement) {
+                    boardNameElement.textContent = "--";
+                }
             }
         }
 
@@ -448,124 +488,228 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const servoMoveBtn = document.getElementById('servo-move-btn');
         const servoStopBtn = document.getElementById('servo-stop-btn');
-        const servoRunBtn = document.getElementById('servo-run-btn');
-        const servoHaltBtn = document.getElementById('servo-halt-btn');
         const angleSlider = document.getElementById('angle-slider');
         const angleValue = document.getElementById('angle-value');
         const presetAngleBtns = document.querySelectorAll('.preset-angle-btn');
-        const positionBtns = document.querySelectorAll('.position-btn');
         const servoArm = document.getElementById('servo-arm');
-        const servoStatusText = document.getElementById('servo-status-text');
-        const servoStatus = document.getElementById('servo-status');
-        const servoDetailStatus = document.getElementById('servo-detail-status');
-
-
-        updateServoVisualization();
-        updateServoStatus();
 
         function updateServoStatus() {
-            if (servoStatusText) {
-                servoStatusText.textContent = isServoMoving ? 'Moving' : 'Ready';
-            }
+            const servoStatus = document.getElementById('servo-status');
+            const servoDetailStatus = document.getElementById('servo-detail-status');
+            const servoStatusText = document.getElementById('servo-status-text');
+            
             if (servoStatus) {
-                servoStatus.textContent = isServoMoving ? `Moving to ${currentAngle}°` : `Stopped at ${currentAngle}°`;
+                servoStatus.textContent = `Stopped at ${currentAngle}°`;
             }
             if (servoDetailStatus) {
-                servoDetailStatus.textContent = isServoMoving ? `Moving to ${currentAngle}°` : `Stopped at ${currentAngle}°`;
-
-                const statusIndicator = servoDetailStatus.parentElement.querySelector('.status-indicator');
-                if (statusIndicator) {
-                    statusIndicator.className = 'status-indicator';
-                    statusIndicator.classList.add(isServoMoving ? 'running' : 'stopped');
-                }
+                servoDetailStatus.textContent = `Stopped at ${currentAngle}°`;
             }
-            if (angleValue) {
-                angleValue.textContent = `${currentAngle}°`;
+            if (servoStatusText) {
+                servoStatusText.textContent = `Ready (${currentAngle}°)`;
+            }
+
+            const statusIndicator = document.querySelector('#servo-detail-status')?.parentElement?.querySelector('.status-indicator');
+            if (statusIndicator) {
+                statusIndicator.className = 'status-indicator stopped';
             }
         }
 
         function updateServoVisualization() {
             if (servoArm) {
-                const rotation = currentAngle - 90; 
+                const rotation = currentAngle - 90;
                 servoArm.style.transform = `rotate(${rotation}deg)`;
             }
         }
 
         function updateServoStatusFromArduino(data) {
-            if (data.includes('CONNECTED')) {
-                isServoMoving = false;
-            } else if (data.includes('STOPPED')) {
-                isServoMoving = false;
+            if (data.includes('SERVO_ANGLE:')) {
+                const angleMatch = data.match(/SERVO_ANGLE:(\d+)/);
+                if (angleMatch) {
+                    currentAngle = parseInt(angleMatch[1]);
+                    isServoMoving = false;
+                    updateServoStatus();
+                    updateServoVisualization();
+                }
             }
-            updateServoStatus();
+            else if (data.includes('SERVO_ANGLE_SET:')) {
+                const angleMatch = data.match(/SERVO_ANGLE_SET:(\d+)/);
+                if (angleMatch) {
+                    currentAngle = parseInt(angleMatch[1]);
+                    isServoMoving = false;
+                    updateServoStatus();
+                    updateServoVisualization();
+                }
+            }
+            else if (data.includes('SERVO:STOPPED')) {
+                isServoMoving = false;
+                updateServoStatus();
+            }
         }
 
-        async function moveServoToAngle(angle) {
-            currentAngle = angle;
-            if (angleSlider) angleSlider.value = currentAngle;
-            updateServoStatus();
-            updateServoVisualization();
+        servoMoveBtn?.addEventListener('click', async () => {
+            if (!isConnected) {
+                showToast("❌ Arduino not connected", "#ff4c4c");
+                return;
+            }
             
+            isServoMoving = true;
             const success = await writeToArduino(`SERVO:ANGLE:${currentAngle}`);
             if (success) {
-                isServoMoving = true;
-                updateServoStatus();
+                showToast(`Servo moving to ${currentAngle}°`, "#4c82ff");
                 addLog('arduino', `Servo moving to ${currentAngle}°`, 'servo');
+                
+                const servoStatus = document.getElementById('servo-status');
+                const servoDetailStatus = document.getElementById('servo-detail-status');
+                if (servoStatus) servoStatus.textContent = `Moving to ${currentAngle}°`;
+                if (servoDetailStatus) servoDetailStatus.textContent = `Moving to ${currentAngle}°`;
+                
+                await saveArduinoState({
+                    servoMoving: true,
+                    servoAngle: currentAngle,
+                    ledState: currentLedState,
+                    isBlinking: isBlinking,
+                    isConnected: true
+                });
             }
-        }
+        });
 
-        async function stopServo() {
+        servoStopBtn?.addEventListener('click', async () => {
+            if (!isConnected) {
+                showToast("❌ Arduino not connected", "#ff4c4c");
+                return;
+            }
+            
             const success = await writeToArduino('SERVO:STOP');
             if (success) {
                 isServoMoving = false;
                 updateServoStatus();
+                showToast("Servo stopped", "#4c82ff");
                 addLog('arduino', 'Servo stopped', 'servo');
+                
+                await saveArduinoState({
+                    servoMoving: false,
+                    servoAngle: currentAngle,
+                    ledState: currentLedState,
+                    isBlinking: isBlinking,
+                    isConnected: true
+                });
             }
-        }
-
-        async function connectServo() {
-            const success = await writeToArduino('SERVO:CONNECT');
-            if (success) {
-                addLog('arduino', 'Servo connected', 'servo');
-            }
-        }
-
-        servoMoveBtn?.addEventListener('click', () => moveServoToAngle(currentAngle));
-        servoStopBtn?.addEventListener('click', stopServo);
-        servoRunBtn?.addEventListener('click', () => moveServoToAngle(currentAngle));
-        servoHaltBtn?.addEventListener('click', stopServo);
+        });
 
         angleSlider?.addEventListener('input', () => {
             currentAngle = parseInt(angleSlider.value);
-            updateServoStatus();
             updateServoVisualization();
+            
+            if (angleValue) {
+                angleValue.textContent = `${currentAngle}°`;
+            }
         });
 
-        angleSlider?.addEventListener('change', () => {
-            moveServoToAngle(currentAngle);
+        angleSlider?.addEventListener('change', async () => {
+            if (!isConnected) {
+                showToast("❌ Arduino not connected", "#ff4c4c");
+                return;
+            }
+            
+            const success = await writeToArduino(`SERVO:ANGLE:${currentAngle}`);
+            if (success) {
+                isServoMoving = true;
+                showToast(`Servo moving to ${currentAngle}°`, "#4c82ff");
+                addLog('arduino', `Servo angle changed to ${currentAngle}°`, 'servo');
+                
+                const servoStatus = document.getElementById('servo-status');
+                const servoDetailStatus = document.getElementById('servo-detail-status');
+                if (servoStatus) servoStatus.textContent = `Moving to ${currentAngle}°`;
+                if (servoDetailStatus) servoDetailStatus.textContent = `Moving to ${currentAngle}°`;
+                
+                await saveArduinoState({
+                    servoMoving: true,
+                    servoAngle: currentAngle,
+                    ledState: currentLedState,
+                    isBlinking: isBlinking,
+                    isConnected: true
+                });
+            }
         });
 
         presetAngleBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', async () => {
+                if (!isConnected) {
+                    showToast("❌ Arduino not connected", "#ff4c4c");
+                    return;
+                }
+                
                 const angle = parseInt(btn.getAttribute('data-angle'));
-                moveServoToAngle(angle);
+                currentAngle = angle;
+                
+                if (angleSlider) angleSlider.value = angle;
+                updateServoVisualization();
+                
+                if (angleValue) {
+                    angleValue.textContent = `${currentAngle}°`;
+                }
+                
+                const success = await writeToArduino(`SERVO:ANGLE:${currentAngle}`);
+                if (success) {
+                    isServoMoving = true;
+                    showToast(`Servo moving to ${currentAngle}°`, "#4c82ff");
+                    addLog('arduino', `Servo preset to ${currentAngle}°`, 'servo');
+                    
+                    const servoStatus = document.getElementById('servo-status');
+                    const servoDetailStatus = document.getElementById('servo-detail-status');
+                    if (servoStatus) servoStatus.textContent = `Moving to ${currentAngle}°`;
+                    if (servoDetailStatus) servoDetailStatus.textContent = `Moving to ${currentAngle}°`;
+                    
+                    await saveArduinoState({
+                        servoMoving: true,
+                        servoAngle: currentAngle,
+                        ledState: currentLedState,
+                        isBlinking: isBlinking,
+                        isConnected: true
+                    });
+                }
             });
         });
 
+        const positionBtns = document.querySelectorAll('.position-btn');
         positionBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', async () => {
+                if (!isConnected) {
+                    showToast("❌ Arduino not connected", "#ff4c4c");
+                    return;
+                }
+                
                 const angle = parseInt(btn.getAttribute('data-angle'));
-                moveServoToAngle(angle);
+                currentAngle = angle;
+                
+                if (angleSlider) angleSlider.value = angle;
+                updateServoVisualization();
+                
+                if (angleValue) {
+                    angleValue.textContent = `${currentAngle}°`;
+                }
+                
+                const success = await writeToArduino(`SERVO:ANGLE:${currentAngle}`);
+                if (success) {
+                    isServoMoving = true;
+                    showToast(`Servo moving to ${currentAngle}°`, "#4c82ff");
+                    addLog('arduino', `Servo moved to ${currentAngle}° from quick positions`, 'servo');
+                    
+                    const servoStatus = document.getElementById('servo-status');
+                    const servoDetailStatus = document.getElementById('servo-detail-status');
+                    if (servoStatus) servoStatus.textContent = `Moving to ${currentAngle}°`;
+                    if (servoDetailStatus) servoDetailStatus.textContent = `Moving to ${currentAngle}°`;
+                    
+                    await saveArduinoState({
+                        servoMoving: true,
+                        servoAngle: currentAngle,
+                        ledState: currentLedState,
+                        isBlinking: isBlinking,
+                        isConnected: true
+                    });
+                }
             });
         });
-
-        const quickServo0 = document.getElementById('quick-servo-0');
-        const quickServo90 = document.getElementById('quick-servo-90');
-        const quickServo180 = document.getElementById('quick-servo-180');
-
-        quickServo0?.addEventListener('click', () => moveServoToAngle(0));
-        quickServo90?.addEventListener('click', () => moveServoToAngle(90));
-        quickServo180?.addEventListener('click', () => moveServoToAngle(180));
 
         const ledOnBtn = document.getElementById('led-on-btn');
         const ledOffBtn = document.getElementById('led-off-btn');
@@ -573,36 +717,44 @@ document.addEventListener('DOMContentLoaded', () => {
         const ledBtns = document.querySelectorAll('.led-btn');
         const patternBtns = document.querySelectorAll('.pattern-btn');
         const applyCustomBlinkBtn = document.getElementById('apply-custom-blink');
-        const ledBulb = document.getElementById('led-bulb');
-        const ledModeText = document.getElementById('led-mode-text');
-        const ledStatus = document.getElementById('led-status');
-        const ledDetailStatus = document.getElementById('led-detail-status');
 
         function updateLedVisualization(state) {
-            if (ledBulb) {
-                ledBulb.className = 'led-bulb';
-                if (state === 'on') ledBulb.classList.add('on');
-                if (state === 'blink') ledBulb.classList.add('blink');
+            const ledBulb = document.getElementById('led-bulb');
+            const ledModeText = document.getElementById('led-mode-text');
+            const ledStatus = document.getElementById('led-status');
+            const ledDetailStatus = document.getElementById('led-detail-status');
+            
+            ledBulb.className = 'led-bulb';
+            
+            switch(state) {
+                case 'on':
+                    ledBulb.classList.add('on');
+                    ledModeText.textContent = 'ON';
+                    ledStatus.textContent = 'On';
+                    ledDetailStatus.textContent = 'On';
+                    break;
+                case 'off':
+                    ledModeText.textContent = 'OFF';
+                    ledStatus.textContent = 'Off';
+                    ledDetailStatus.textContent = 'Off';
+                    break;
+                case 'blink':
+                    ledBulb.classList.add('blink');
+                    ledModeText.textContent = 'BLINK';
+                    ledStatus.textContent = 'Blinking';
+                    ledDetailStatus.textContent = 'Blinking';
+                    break;
             }
             
-            if (ledModeText) {
-                ledModeText.textContent = state.toUpperCase();
-            }
+            const statusIndicator = ledDetailStatus.parentElement.querySelector('.status-indicator');
+            statusIndicator.className = 'status-indicator';
             
-            if (ledStatus) {
-                ledStatus.textContent = state === 'on' ? 'On' : state === 'off' ? 'Off' : 'Blinking';
-            }
-            
-            if (ledDetailStatus) {
-                ledDetailStatus.textContent = state === 'on' ? 'On' : state === 'off' ? 'Off' : 'Blinking';
-                
-                const statusIndicator = ledDetailStatus.parentElement.querySelector('.status-indicator');
-                if (statusIndicator) {
-                    statusIndicator.className = 'status-indicator';
-                    if (state === 'on') statusIndicator.classList.add('on');
-                    else if (state === 'blink') statusIndicator.classList.add('blinking');
-                    else statusIndicator.classList.add('off');
-                }
+            if (state === 'on') {
+                statusIndicator.classList.add('on');
+            } else if (state === 'blink') {
+                statusIndicator.classList.add('blinking');
+            } else {
+                statusIndicator.classList.add('off');
             }
         }
 
@@ -610,89 +762,191 @@ document.addEventListener('DOMContentLoaded', () => {
             patternBtns.forEach(btn => {
                 if (blinking) {
                     btn.classList.add('active-blink');
+                    const pattern = btn.getAttribute('data-pattern');
+                    btn.innerHTML = `<i class="fa-solid fa-stop"></i> Stop ${pattern}`;
                 } else {
                     btn.classList.remove('active-blink');
+                    const pattern = btn.getAttribute('data-pattern');
+                    let icon = '', text = '';
+                    switch(pattern) {
+                        case 'slow': icon = 'fa-wave-square'; text = 'Slow Blink'; break;
+                        case 'fast': icon = 'fa-bolt'; text = 'Fast Blink'; break;
+                        case 'pulse': icon = 'fa-heart-pulse'; text = 'Pulse'; break;
+                    }
+                    btn.innerHTML = `<i class="fa-solid ${icon}"></i> ${text}`;
                 }
             });
         }
 
-        async function setLedState(state) {
-            currentLedState = state;
-            updateLedVisualization(state);
-            
-            let command = '';
-            switch(state) {
-                case 'on': command = 'LED:ON'; break;
-                case 'off': command = 'LED:OFF'; break;
-                case 'blink': command = 'LED:BLINK'; break;
-            }
-            
-            const success = await writeToArduino(command);
-            if (success) {
-                addLog('arduino', `LED turned ${state.toUpperCase()}`, 'led');
-            }
-        }
+        ledOnBtn?.addEventListener('click', () => {
+            currentLedState = 'on';
+            updateLedVisualization('on');
+            writeToArduino('LED:ON');
+        });
 
-        async function setCustomBlink(onTime, offTime) {
-            const success = await writeToArduino(`LED:BLINK,CUSTOM,ON:${onTime},OFF:${offTime}`);
-            if (success) {
+        ledOffBtn?.addEventListener('click', () => {
+            currentLedState = 'off';
+            updateLedVisualization('off');
+            writeToArduino('LED:OFF');
+        });
+
+        ledBlinkBtn?.addEventListener('click', () => {
+            if (isBlinking) {
+                currentLedState = 'off';
+                updateLedVisualization('off');
+                writeToArduino('LED:OFF');
+            } else {
                 currentLedState = 'blink';
                 updateLedVisualization('blink');
-                addLog('arduino', `Custom blink: ON ${onTime}ms, OFF ${offTime}ms`, 'led');
-                showToast(`Custom blink applied: ${onTime}ms on, ${offTime}ms off`, "#4c82ff");
+                writeToArduino('LED:BLINK');
             }
-        }
-
-        ledOnBtn?.addEventListener('click', () => setLedState('on'));
-        ledOffBtn?.addEventListener('click', () => setLedState('off'));
-        ledBlinkBtn?.addEventListener('click', () => setLedState('blink'));
+        });
 
         ledBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const state = btn.getAttribute('data-state');
-                setLedState(state);
+                currentLedState = state;
+                updateLedVisualization(state);
+                writeToArduino(`LED:${state.toUpperCase()}`);
             });
         });
 
         patternBtns.forEach(btn => {
             btn.addEventListener('click', () => {
-                const pattern = btn.getAttribute('data-pattern');
-                let onTime = 500, offTime = 500;
+                if (isBlinking) {
+                    currentLedState = 'off';
+                    updateLedVisualization('off');
+                    writeToArduino('LED:OFF');
+                    return;
+                }
                 
+                const pattern = btn.getAttribute('data-pattern');
+                currentLedState = 'blink';
+                updateLedVisualization('blink');
+                
+                let onTime, offTime;
                 switch(pattern) {
                     case 'slow': onTime = 1000; offTime = 1000; break;
                     case 'fast': onTime = 200; offTime = 200; break;
                     case 'pulse': onTime = 100; offTime = 500; break;
+                    default: onTime = 500; offTime = 500;
                 }
-                
-                setCustomBlink(onTime, offTime);
+                writeToArduino(`LED:BLINK,CUSTOM,ON:${onTime},OFF:${offTime}`);
             });
         });
 
         applyCustomBlinkBtn?.addEventListener('click', () => {
             const onTime = document.getElementById('blink-on-time').value || 500;
             const offTime = document.getElementById('blink-off-time').value || 500;
-            setCustomBlink(onTime, offTime);
+            currentLedState = 'blink';
+            updateLedVisualization('blink');
+            writeToArduino(`LED:BLINK,CUSTOM,ON:${onTime},OFF:${offTime}`);
+            showToast(`Custom blink: ${onTime}ms on, ${offTime}ms off`, "#4c82ff");
         });
 
+        const quickServo0 = document.getElementById('quick-servo-0');
+        const quickServo90 = document.getElementById('quick-servo-90');
+        const quickServo180 = document.getElementById('quick-servo-180');
         const quickLedOn = document.getElementById('quick-led-on');
         const quickLedOff = document.getElementById('quick-led-off');
 
-        quickLedOn?.addEventListener('click', () => setLedState('on'));
-        quickLedOff?.addEventListener('click', () => setLedState('off'));
-
-        const originalConnectToArduino = connectToArduino;
-        connectToArduino = async function() {
-            await originalConnectToArduino();
-            if (isConnected) {
-                setTimeout(() => {
-                    connectServo();
-                }, 1000);
+        quickServo0?.addEventListener('click', async () => {
+            if (!isConnected) {
+                showToast("❌ Arduino not connected", "#ff4c4c");
+                return;
             }
-        };
+            
+            currentAngle = 0;
+            const success = await writeToArduino(`SERVO:ANGLE:${currentAngle}`);
+            if (success) {
+                isServoMoving = true;
+                showToast("Servo moving to 0°", "#4c82ff");
+                addLog('arduino', 'Servo moved to 0° from quick actions', 'servo');
+                
+                const servoStatus = document.getElementById('servo-status');
+                const servoDetailStatus = document.getElementById('servo-detail-status');
+                if (servoStatus) servoStatus.textContent = `Moving to ${currentAngle}°`;
+                if (servoDetailStatus) servoDetailStatus.textContent = `Moving to ${currentAngle}°`;
+                
+                await saveArduinoState({
+                    servoMoving: true,
+                    servoAngle: currentAngle,
+                    ledState: currentLedState,
+                    isBlinking: isBlinking,
+                    isConnected: true
+                });
+            }
+        });
 
-       
-function updateSensorData(data) {
+        quickServo90?.addEventListener('click', async () => {
+            if (!isConnected) {
+                showToast("❌ Arduino not connected", "#ff4c4c");
+                return;
+            }
+            
+            currentAngle = 90;
+            const success = await writeToArduino(`SERVO:ANGLE:${currentAngle}`);
+            if (success) {
+                isServoMoving = true;
+                showToast("Servo moving to 90°", "#4c82ff");
+                addLog('arduino', 'Servo moved to 90° from quick actions', 'servo');
+                
+                const servoStatus = document.getElementById('servo-status');
+                const servoDetailStatus = document.getElementById('servo-detail-status');
+                if (servoStatus) servoStatus.textContent = `Moving to ${currentAngle}°`;
+                if (servoDetailStatus) servoDetailStatus.textContent = `Moving to ${currentAngle}°`;
+                
+                await saveArduinoState({
+                    servoMoving: true,
+                    servoAngle: currentAngle,
+                    ledState: currentLedState,
+                    isBlinking: isBlinking,
+                    isConnected: true
+                });
+            }
+        });
+
+        quickServo180?.addEventListener('click', async () => {
+            if (!isConnected) {
+                showToast("❌ Arduino not connected", "#ff4c4c");
+                return;
+            }
+            
+            currentAngle = 180;
+            const success = await writeToArduino(`SERVO:ANGLE:${currentAngle}`);
+            if (success) {
+                isServoMoving = true;
+                showToast("Servo moving to 180°", "#4c82ff");
+                addLog('arduino', 'Servo moved to 180° from quick actions', 'servo');
+                
+                const servoStatus = document.getElementById('servo-status');
+                const servoDetailStatus = document.getElementById('servo-detail-status');
+                if (servoStatus) servoStatus.textContent = `Moving to ${currentAngle}°`;
+                if (servoDetailStatus) servoDetailStatus.textContent = `Moving to ${currentAngle}°`;
+                
+                await saveArduinoState({
+                    servoMoving: true,
+                    servoAngle: currentAngle,
+                    ledState: currentLedState,
+                    isBlinking: isBlinking,
+                    isConnected: true
+                });
+            }
+        });
+
+        quickLedOn?.addEventListener('click', () => {
+            currentLedState = 'on';
+            updateLedVisualization('on');
+            writeToArduino('LED:ON');
+        });
+
+        quickLedOff?.addEventListener('click', () => {
+            currentLedState = 'off';
+            updateLedVisualization('off');
+            writeToArduino('LED:OFF');
+        });
+
+        function updateSensorData(data) {
             const tempMatch = data.match(/TEMP:([\d.]+)/);
             const humMatch = data.match(/HUM:([\d.]+)/);
             const lightMatch = data.match(/LIGHT:(\d+)/);
@@ -705,25 +959,38 @@ function updateSensorData(data) {
         setInterval(() => {
             const uptimeElement = document.getElementById('arduino-uptime');
             if (uptimeElement) {
-                const uptime = Date.now() - startTime;
-                const hours = Math.floor(uptime / (1000 * 60 * 60));
-                const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
-                uptimeElement.textContent = `${hours}h ${minutes}m`;
+                if (isConnected && startTime) {
+                    const uptime = Date.now() - startTime;
+                    const hours = Math.floor(uptime / (1000 * 60 * 60));
+                    const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
+                    const seconds = Math.floor((uptime % (1000 * 60)) / 1000);
+                    uptimeElement.textContent = `${hours}h ${minutes}m ${seconds}s`;
+                } else {
+                    uptimeElement.textContent = "--"; 
+                }
             }
         }, 1000);
 
-        setInterval(() => {
-            const uptimeElement = document.getElementById('arduino-uptime');
-            if (uptimeElement) {
-                const uptime = Date.now() - startTime;
-                const hours = Math.floor(uptime / (1000 * 60 * 60));
-                const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
-                uptimeElement.textContent = `${hours}h ${minutes}m`;
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden && isConnected) {
+                updateDashboardStats();
             }
-        }, 1000);
+        });
+
+        setInterval(() => {
+            if (isConnected) {
+                updateDashboardStats();
+                if (writer) {
+                    writeToArduino('STATUS');
+                }
+            }
+        }, 500);
 
         const logsList = document.getElementById('logs-list');
         const filterBtns = document.querySelectorAll('.filter-btn');
+        const totalLogsElement = document.getElementById('total-logs');
+        const arduinoLogsElement = document.getElementById('arduino-logs');
+        const systemLogsElement = document.getElementById('system-logs');
 
         function initializeLogs() {
             addLog('system', 'System initialized', 'info');
@@ -749,6 +1016,10 @@ function updateSensorData(data) {
             
             updateLogsDisplay();
             updateLogStatistics();
+            
+            if (currentUser) {
+                saveLogToFirebase(log);
+            }
         }
 
         function updateLogsDisplay() {
@@ -787,10 +1058,6 @@ function updateSensorData(data) {
         }
 
         function updateLogStatistics() {
-            const totalLogsElement = document.getElementById('total-logs');
-            const arduinoLogsElement = document.getElementById('arduino-logs');
-            const systemLogsElement = document.getElementById('system-logs');
-            
             if (!totalLogsElement) return;
             
             const totalLogs = logs.length;
@@ -802,12 +1069,157 @@ function updateSensorData(data) {
             systemLogsElement.textContent = systemLogs;
         }
 
+        async function saveLogToFirebase(log) {
+            try {
+                await db.collection('logs').add({
+                    ...log,
+                    userId: currentUser.uid,
+                    userEmail: currentUser.email
+                });
+            } catch (error) {
+                console.error('Error saving log to Firebase:', error);
+            }
+        }
+
+        async function loadLogsFromFirebase() {
+            if (!currentUser) return;
+            
+            try {
+                const snapshot = await db.collection('logs')
+                    .where('userId', '==', currentUser.uid)
+                    .orderBy('date', 'desc')
+                    .limit(50)
+                    .get();
+                
+                snapshot.forEach(doc => {
+                    const log = doc.data();
+                    if (!logs.find(existingLog => existingLog.id === log.id)) {
+                        logs.push(log);
+                    }
+                });
+                
+                updateLogsDisplay();
+                updateLogStatistics();
+            } catch (error) {
+                console.error('Error loading logs from Firebase:', error);
+            }
+        }
+
         filterBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 filterBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentFilter = btn.getAttribute('data-filter');
                 updateLogsDisplay();
+            });
+        });
+
+        const originalConnectToArduino = connectToArduino;
+        connectToArduino = async function() {
+            try {
+                addLog('system', 'Attempting to connect to Arduino...', 'info');
+                await originalConnectToArduino();
+                addLog('arduino', 'Arduino connected successfully', 'success');
+            } catch (error) {
+                addLog('system', 'Failed to connect to Arduino', 'error');
+            }
+        };
+
+        const originalDisconnectFromArduino = disconnectFromArduino;
+        disconnectFromArduino = async function() {
+            addLog('arduino', 'Arduino disconnected', 'info');
+            await originalDisconnectFromArduino();
+        };
+
+        if (servoMoveBtn) {
+            servoMoveBtn.addEventListener('click', () => {
+                addLog('arduino', `Servo moving to ${currentAngle}°`, 'servo');
+            });
+        }
+
+        if (servoStopBtn) {
+            servoStopBtn.addEventListener('click', () => {
+                addLog('arduino', 'Servo stopped', 'servo');
+            });
+        }
+
+        if (ledOnBtn) {
+            ledOnBtn.addEventListener('click', () => {
+                addLog('arduino', 'LED turned ON', 'led');
+            });
+        }
+
+        if (ledOffBtn) {
+            ledOffBtn.addEventListener('click', () => {
+                addLog('arduino', 'LED turned OFF', 'led');
+            });
+        }
+
+        if (ledBlinkBtn) {
+            ledBlinkBtn.addEventListener('click', () => {
+                if (isBlinking) {
+                    addLog('arduino', 'LED blinking stopped', 'led');
+                } else {
+                    addLog('arduino', 'LED blinking started', 'led');
+                }
+            });
+        }
+
+        patternBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const pattern = btn.getAttribute('data-pattern');
+                addLog('arduino', `LED ${pattern} blink pattern started`, 'led');
+            });
+        });
+
+        if (applyCustomBlinkBtn) {
+            applyCustomBlinkBtn.addEventListener('click', () => {
+                const onTime = document.getElementById('blink-on-time').value || 500;
+                const offTime = document.getElementById('blink-off-time').value || 500;
+                addLog('arduino', `Custom blink pattern applied (ON: ${onTime}ms, OFF: ${offTime}ms)`, 'led');
+            });
+        }
+
+        if (quickServo0) {
+            quickServo0.addEventListener('click', () => {
+                addLog('arduino', 'Servo moved to 0° from quick actions', 'servo');
+            });
+        }
+
+        if (quickServo90) {
+            quickServo90.addEventListener('click', () => {
+                addLog('arduino', 'Servo moved to 90° from quick actions', 'servo');
+            });
+        }
+
+        if (quickServo180) {
+            quickServo180.addEventListener('click', () => {
+                addLog('arduino', 'Servo moved to 180° from quick actions', 'servo');
+            });
+        }
+
+        if (quickLedOn) {
+            quickLedOn.addEventListener('click', () => {
+                addLog('arduino', 'LED turned ON from quick actions', 'led');
+            });
+        }
+
+        if (quickLedOff) {
+            quickLedOff.addEventListener('click', () => {
+                addLog('arduino', 'LED turned OFF from quick actions', 'led');
+            });
+        }
+
+        if (angleSlider) {
+            angleSlider.addEventListener('change', () => {
+                addLog('arduino', `Servo angle changed to ${currentAngle}°`, 'servo');
+            });
+        }
+
+        presetAngleBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const angle = parseInt(btn.getAttribute('data-angle'));
+                addLog('arduino', `Servo angle preset to ${angle}°`, 'servo');
             });
         });
 
@@ -819,6 +1231,7 @@ function updateSensorData(data) {
                 document.querySelector('.user-avatar').textContent = username.charAt(0).toUpperCase();
                 
                 addLog('system', `User ${user.email} logged in`, 'user');
+                await loadLogsFromFirebase();
                 initializeAdminManagement(user);
             }
         });
@@ -855,7 +1268,7 @@ function updateSensorData(data) {
             }
         }
 
-const changePasswordBtn = document.getElementById('change-password-btn');
+        const changePasswordBtn = document.getElementById('change-password-btn');
         changePasswordBtn?.addEventListener('click', async () => {
             const currentPassword = document.getElementById('current-password').value;
             const newPassword = document.getElementById('new-password').value;
@@ -953,7 +1366,6 @@ const changePasswordBtn = document.getElementById('change-password-btn');
                 addLog('system', `Failed to delete account: ${errorMessage}`, 'error');
             }
         });
-
 
         initializeLogs();
     }
