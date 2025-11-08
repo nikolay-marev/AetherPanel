@@ -695,51 +695,99 @@ body {
     font-weight: 500;
 }
 
-.motor-visual {
+.servo-visual {
+    width: 200px;
+    height: 150px;
+    position: relative;
+    margin: 20px auto;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 15px;
 }
 
-.motor-circle {
-    width: 120px;
-    height: 120px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #2a384b, #1a2435);
-    border: 3px solid var(--border);
+.servo-body {
+    width: 100px;
+    height: 60px;
+    background: linear-gradient(135deg, #555, #333);
+    border-radius: 10px;
+    position: relative;
+    border: 2px solid #444;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.servo-arm {
+    width: 80px;
+    height: 8px;
+    background: linear-gradient(90deg, #777, #999);
+    position: absolute;
+    top: 26px;
+    left: 100px;
+    transform-origin: left center;
+    transform: rotate(0deg);
+    transition: transform 0.5s ease;
+    border-radius: 4px;
+    box-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+}
+
+.servo-info {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.angle-display, .status-display {
+    margin: 8px 0;
+    font-size: 14px;
+}
+
+.angle-display span:first-child,
+.status-display span:first-child {
+    color: #8b9cb1;
+    margin-right: 8px;
+}
+
+.preset-angle-btn, .position-btn {
+    padding: 10px 16px;
+    background: rgba(76, 130, 255, 0.1);
+    border: 1px solid #4c82ff;
+    color: #4c82ff;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin: 5px;
+    font-size: 14px;
+}
+
+.preset-angle-btn:hover, .position-btn:hover {
+    background: #4c82ff;
+    color: white;
+    transform: translateY(-2px);
+}
+
+.quick-positions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.position-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 40px;
-    color: var(--text-muted);
-    transition: all 0.3s ease;
-}
-
-.motor-circle.running {
-    border-color: var(--success);
-    color: var(--success-light);
-    animation: rotate 2s linear infinite;
-}
-
-@keyframes rotate {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
-.motor-info {
-    display: flex;
-    flex-direction: column;
     gap: 8px;
-    width: 100%;
 }
 
-.speed-display, .direction-display {
-    display: flex;
-    justify-content: space-between;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
+.angle-slider {
+    width: 100%;
+    margin: 15px 0;
+}
+
+.angle-value {
+    font-size: 18px;
+    font-weight: bold;
+    color: #4c82ff;
+    text-align: center;
+    margin: 10px 0;
 }
 
 .slider-container {
@@ -1175,7 +1223,6 @@ body {
     max-width: 300px;
 }
 
-/* Admin Management Styles */
 .admin-stats {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1361,7 +1408,6 @@ body {
     gap: 10px;
 }
 
-/* Admin buttons styling */
 .admin-btn {
     padding: 10px 15px;
     border: none;
@@ -1396,7 +1442,6 @@ body {
     transform: translateY(-1px);
 }
 
-/* Loading and error states */
 .loading {
     text-align: center;
     color: var(--text-muted);
@@ -1425,7 +1470,6 @@ body {
     color: var(--primary);
 }
 
-/* Scrollbar for sessions list */
 .sessions-list::-webkit-scrollbar {
     width: 6px;
 }
@@ -1444,7 +1488,6 @@ body {
     background: var(--primary-dark);
 }
 
-/* Responsive adjustments */
 @media (max-width: 768px) {
     .admin-stats {
         grid-template-columns: 1fr;
@@ -1681,7 +1724,6 @@ body {
     }
 }
 
-/* Logs specific styles */
 .logs-filters {
     display: flex;
     gap: 10px;
@@ -1748,7 +1790,6 @@ body {
     color: var(--text-muted);
 }
 
-/* Activity list improvements for logs */
 #logs-list {
     max-height: 400px;
     overflow-y: auto;
@@ -1763,7 +1804,6 @@ body {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* Different colors for log types */
 .activity-item i.fa-circle-info { color: var(--primary); }
 .activity-item i.fa-circle-check { color: var(--success); }
 .activity-item i.fa-triangle-exclamation { color: var(--warning); }
@@ -1773,7 +1813,6 @@ body {
 .activity-item i.fa-lightbulb { color: #ffa500; }
 .activity-item i.fa-user { color: #919db1; }
 
-/* Scrollbar styling for logs list */
 #logs-list::-webkit-scrollbar {
     width: 6px;
 }
