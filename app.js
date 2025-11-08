@@ -1,0 +1,979 @@
+const firebaseConfig = {
+  apiKey: "AIzaSyBPxmdwUc45Ub7JnjfMqiVQBCE1dDF8154",
+  authDomain: "serverpanel-d2e7e.firebaseapp.com",
+  databaseURL: "https://serverpanel-d2e7e-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "serverpanel-d2e7e",
+  storageBucket: "serverpanel-d2e7e.firebasestorage.app",
+  messagingSenderId: "237354868444",
+  appId: "1:237354868444:web:96af5238fb2a251d4d5e19",
+  measurementId: "G-9B5JZXB8RY"
+};
+
+try {
+  firebase.initializeApp(firebaseConfig);
+} catch (error) {
+  console.log('Firebase already initialized');
+}
+
+const db = firebase.firestore();
+const auth = firebase.auth();
+
+document.addEventListener('DOMContentLoaded', () => {
+    let currentUser = null;
+    let serialPort = null;
+    let reader = null;
+    let writer = null;
+    let isConnected = false;
+    let startTime = Date.now();
+    let isBlinking = false;
+    let currentDirection = 'forward';
+    let currentSpeed = 0;
+    let isMotorRunning = false;
+    let currentLedState = 'off';
+    let logs = [];
+    let currentFilter = 'all';
+
+    function showToast(msg, color = "#4c82ff") {
+        let toast = document.getElementById('toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'toast';
+            document.body.appendChild(toast);
+        }
+        toast.textContent = msg;
+        toast.style.borderColor = color;
+        toast.style.boxShadow = `0 0 20px ${color}44`;
+        toast.style.opacity = "1";
+        setTimeout(() => {
+            toast.style.opacity = "0";
+        }, 4000);
+    }
+
+    document.getElementById('navigation').style.display = 'none';
+    document.getElementById('top-bar').style.display = 'none';
+    document.getElementById('content').style.display = 'none';
+    
+    showLoginModal();
+
+    function showLoginModal() {
+        const modal = document.createElement('div');
+        modal.className = 'login-modal';
+        modal.id = 'login-modal';
+        modal.innerHTML = `
+            <div class="login-form">
+                <div class="login-header">
+                    <h2>AetherPanel</h2>
+                </div>
+                <div class="input-group">
+                    <label>Email Address</label>
+                    <input type="email" id="login-email" placeholder="Enter admin email">
+                </div>
+                <div class="input-group">
+                    <label>Password</label>
+                    <input type="password" id="login-password" placeholder="Enter admin password">
+                </div>
+                <button id="login-btn" class="login-button">
+                    <i class="fa-solid fa-right-to-bracket"></i> Login
+                </button>
+                <div class="login-info">
+                    <i style="color: #59759c;" class="fa-solid fa-shield"></i>
+                    <small>Only pre-registered admin accounts can access this system.</small>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        document.getElementById('login-btn').addEventListener('click', handleLogin);
+        document.getElementById('login-password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleLogin();
+        });
+
+        async function handleLogin() {
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            
+            if (!email || !password) {
+                showToast('Please fill in both email and password', '#ff4c4c');
+                return;
+            }
+
+            const loginBtn = document.getElementById('login-btn');
+            loginBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Signing in...';
+            loginBtn.disabled = true;
+
+            try {
+                await auth.signInWithEmailAndPassword(email, password);
+                showToast('✅ Login successful!', '#4c82ff');
+                document.getElementById('login-modal').remove();
+                showMainInterface();
+            } catch (error) {
+                let errorMessage = 'Login failed';
+                switch(error.code) {
+                    case 'auth/user-not-found': errorMessage = 'Account not found'; break;
+                    case 'auth/wrong-password': errorMessage = 'Incorrect password'; break;
+                    case 'auth/invalid-email': errorMessage = 'Invalid email address'; break;
+                    case 'auth/user-disabled': errorMessage = 'Account disabled'; break;
+                }
+                showToast(errorMessage, '#ff4c4c');
+                loginBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Login';
+                loginBtn.disabled = false;
+            }
+        }
+    }
+
+    function showMainInterface() {
+        document.getElementById('navigation').style.display = 'block';
+        document.getElementById('top-bar').style.display = 'flex';
+        document.getElementById('content').style.display = 'block';
+        initializeApp();
+    }
+
+    function initializeApp() {
+        const navItems = document.querySelectorAll('.nav-item');
+        const tabs = document.querySelectorAll('.tab');
+        const dropdownContainer = document.querySelector('.dropdown-container');
+        const dropdownMenu = document.querySelector('.dropdown-menu');
+        const toast = document.getElementById('toast');
+
+        function activateTab(tabId) {
+            navItems.forEach(item => item.classList.remove('active'));
+            tabs.forEach(tab => tab.classList.remove('active'));
+            const targetNav = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+            const targetTab = document.getElementById(tabId);
+            if (targetNav) targetNav.classList.add('active');
+            if (targetTab) targetTab.classList.add('active');
+            localStorage.setItem('lastActiveAdminTab', tabId);
+        }
+
+        const savedTab = localStorage.getItem('lastActiveAdminTab');
+        activateTab(savedTab || 'dashboard');
+
+        navItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const targetTab = item.getAttribute('data-tab');
+                activateTab(targetTab);
+            });
+        });
+
+        if (dropdownContainer && dropdownMenu) {
+            dropdownContainer.addEventListener('click', (event) => {
+                event.stopPropagation();
+                dropdownMenu.classList.toggle('open');
+            });
+        }
+
+        document.addEventListener('click', (event) => {
+            if (dropdownMenu && dropdownMenu.classList.contains('open') && !dropdownContainer.contains(event.target)) {
+                dropdownMenu.classList.remove('open');
+            }
+        });
+
+        async function connectToArduino() {
+            try {
+                if (!navigator.serial) {
+                    showToast("Web Serial API not supported", "#ff4c4c");
+                    return;
+                }
+                
+                serialPort = await navigator.serial.requestPort();
+                await serialPort.open({ baudRate: 9600 });
+                
+                const textDecoder = new TextDecoderStream();
+                serialPort.readable.pipeTo(textDecoder.writable);
+                reader = textDecoder.readable.getReader();
+                
+                const textEncoder = new TextEncoderStream();
+                textEncoder.readable.pipeTo(serialPort.writable);
+                writer = textEncoder.writable.getWriter();
+                
+                isConnected = true;
+                updateConnectionStatus(true);
+                showToast("✅ Arduino connected", "#4c82ff");
+                readFromArduino();
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showToast("❌ Connection failed", "#ff4c4c");
+                isConnected = false;
+                updateConnectionStatus(false);
+            }
+        }
+
+        async function disconnectFromArduino() {
+            if (reader) {
+                await reader.cancel();
+                reader = null;
+            }
+            if (writer) {
+                await writer.close();
+                writer = null;
+            }
+            if (serialPort) {
+                await serialPort.close();
+                serialPort = null;
+            }
+            isConnected = false;
+            updateConnectionStatus(false);
+            showToast("🔌 Arduino disconnected", "#ff4c4c");
+        }
+
+        async function readFromArduino() {
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        reader.releaseLock();
+                        break;
+                    }
+                    if (value) {
+                        processArduinoData(value);
+                    }
+                }
+            } catch (error) {
+                console.error('Read error:', error);
+            }
+        }
+
+        async function writeToArduino(data) {
+            if (!isConnected || !writer) {
+                showToast("❌ Arduino not connected", "#ff4c4c");
+                return false;
+            }
+            try {
+                await writer.write(data + '\n');
+                console.log('Sent:', data);
+                return true;
+            } catch (error) {
+                console.error('Write error:', error);
+                return false;
+            }
+        }
+
+        function processArduinoData(data) {
+            console.log('Received:', data);
+            
+            if (data.includes('STATUS:READY')) {
+                updateConnectionStatus(true);
+            }
+            else if (data.includes('LED:BLINK_STARTED')) {
+                isBlinking = true;
+                currentLedState = 'blink';
+                updateLedVisualization('blink');
+                updateBlinkButtons(true);
+            }
+            else if (data.includes('LED:ON')) {
+                isBlinking = false;
+                currentLedState = 'on';
+                updateLedVisualization('on');
+                updateBlinkButtons(false);
+            }
+            else if (data.includes('LED:OFF')) {
+                isBlinking = false;
+                currentLedState = 'off';
+                updateLedVisualization('off');
+                updateBlinkButtons(false);
+            }
+            else if (data.includes('SENSOR:')) {
+                updateSensorData(data);
+            }
+            else if (data.includes('MOTOR:')) {
+                updateMotorStatusFromArduino(data);
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('status-text');
+            const arduinoStatus = document.getElementById('arduino-status');
+            const arduinoDetailStatus = document.getElementById('arduino-detail-status');
+            const serverStatus = document.querySelector('.server-status');
+            
+            if (connected) {
+                statusElement.textContent = "Arduino Online";
+                arduinoStatus.textContent = "Connected";
+                arduinoDetailStatus.innerHTML = '<div class="status-indicator connected"></div><span>Connected</span>';
+                serverStatus.style.background = "#1f6e4d";
+                document.getElementById('last-ping').textContent = new Date().toLocaleTimeString();
+            } else {
+                statusElement.textContent = "Arduino Offline";
+                arduinoStatus.textContent = "Disconnected";
+                arduinoDetailStatus.innerHTML = '<div class="status-indicator disconnected"></div><span>Disconnected</span>';
+                serverStatus.style.background = "#ff4c4c";
+            }
+        }
+
+        document.getElementById('connect-arduino').addEventListener('click', async (e) => {
+            if (!isConnected) {
+                await connectToArduino();
+            } else {
+                await disconnectFromArduino();
+            }
+        });
+
+        const motorStartBtn = document.getElementById('motor-start-btn');
+        const motorStopBtn = document.getElementById('motor-stop-btn');
+        const motorRunBtn = document.getElementById('motor-run-btn');
+        const motorHaltBtn = document.getElementById('motor-halt-btn');
+        const speedSlider = document.getElementById('speed-slider');
+        const speedValue = document.getElementById('speed-value');
+        const directionBtns = document.querySelectorAll('.direction-btn');
+        const presetBtns = document.querySelectorAll('.preset-btn');
+        const motorVisual = document.getElementById('motor-visual');
+        const directionValue = document.getElementById('direction-value');
+        const motorStatus = document.getElementById('motor-status');
+        const motorDetailStatus = document.getElementById('motor-detail-status');
+
+        function updateMotorStatus() {
+            if (isMotorRunning) {
+                motorStatus.textContent = `Running (${currentSpeed}%)`;
+                motorDetailStatus.textContent = `Running (${currentSpeed}%)`;
+                motorVisual.classList.add('running');
+                const statusIndicator = motorDetailStatus.parentElement.querySelector('.status-indicator');
+                statusIndicator.className = 'status-indicator running';
+            } else {
+                motorStatus.textContent = 'Stopped';
+                motorDetailStatus.textContent = 'Stopped';
+                motorVisual.classList.remove('running');
+                const statusIndicator = motorDetailStatus.parentElement.querySelector('.status-indicator');
+                statusIndicator.className = 'status-indicator stopped';
+            }
+            speedValue.textContent = `${currentSpeed}%`;
+        }
+
+        function updateMotorStatusFromArduino(data) {
+            if (data.includes('RUNNING')) {
+                isMotorRunning = true;
+                const speedMatch = data.match(/(\d+)%/);
+                if (speedMatch) currentSpeed = parseInt(speedMatch[1]);
+            } else if (data.includes('STOPPED')) {
+                isMotorRunning = false;
+            }
+            updateMotorStatus();
+        }
+
+        motorStartBtn?.addEventListener('click', () => {
+            isMotorRunning = true;
+            updateMotorStatus();
+            writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
+        });
+
+        motorStopBtn?.addEventListener('click', () => {
+            isMotorRunning = false;
+            updateMotorStatus();
+            writeToArduino('MOTOR:STOP');
+        });
+
+        motorRunBtn?.addEventListener('click', () => {
+            isMotorRunning = true;
+            updateMotorStatus();
+            writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
+        });
+
+        motorHaltBtn?.addEventListener('click', () => {
+            isMotorRunning = false;
+            updateMotorStatus();
+            writeToArduino('MOTOR:STOP');
+        });
+
+        speedSlider?.addEventListener('input', () => {
+            currentSpeed = parseInt(speedSlider.value);
+            updateMotorStatus();
+            if (isMotorRunning) {
+                writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
+            }
+        });
+
+        directionBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                directionBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentDirection = btn.getAttribute('data-direction');
+                directionValue.textContent = currentDirection.charAt(0).toUpperCase() + currentDirection.slice(1);
+                if (isMotorRunning) {
+                    writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
+                }
+            });
+        });
+
+        presetBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const speed = parseInt(btn.getAttribute('data-speed'));
+                currentSpeed = speed;
+                speedSlider.value = speed;
+                updateMotorStatus();
+                if (isMotorRunning) {
+                    writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
+                }
+            });
+        });
+
+        const ledOnBtn = document.getElementById('led-on-btn');
+        const ledOffBtn = document.getElementById('led-off-btn');
+        const ledBlinkBtn = document.getElementById('led-blink-btn');
+        const ledBtns = document.querySelectorAll('.led-btn');
+        const patternBtns = document.querySelectorAll('.pattern-btn');
+        const applyCustomBlinkBtn = document.getElementById('apply-custom-blink');
+        const ledBulb = document.getElementById('led-bulb');
+        const ledModeText = document.getElementById('led-mode-text');
+        const ledStatus = document.getElementById('led-status');
+        const ledDetailStatus = document.getElementById('led-detail-status');
+
+        function updateLedVisualization(state) {
+            const ledBulb = document.getElementById('led-bulb');
+            const ledModeText = document.getElementById('led-mode-text');
+            const ledStatus = document.getElementById('led-status');
+            const ledDetailStatus = document.getElementById('led-detail-status');
+            
+            ledBulb.className = 'led-bulb';
+            
+            switch(state) {
+                case 'on':
+                    ledBulb.classList.add('on');
+                    ledModeText.textContent = 'ON';
+                    ledStatus.textContent = 'On';
+                    ledDetailStatus.textContent = 'On';
+                    break;
+                case 'off':
+                    ledModeText.textContent = 'OFF';
+                    ledStatus.textContent = 'Off';
+                    ledDetailStatus.textContent = 'Off';
+                    break;
+                case 'blink':
+                    ledBulb.classList.add('blink');
+                    ledModeText.textContent = 'BLINK';
+                    ledStatus.textContent = 'Blinking';
+                    ledDetailStatus.textContent = 'Blinking';
+                    break;
+            }
+            
+            const statusIndicator = ledDetailStatus.parentElement.querySelector('.status-indicator');
+            statusIndicator.className = 'status-indicator';
+            
+            if (state === 'on') {
+                statusIndicator.classList.add('on');
+            } else if (state === 'blink') {
+                statusIndicator.classList.add('blinking');
+            } else {
+                statusIndicator.classList.add('off');
+            }
+        }
+
+        function updateBlinkButtons(blinking) {
+            patternBtns.forEach(btn => {
+                if (blinking) {
+                    btn.classList.add('active-blink');
+                    const pattern = btn.getAttribute('data-pattern');
+                    btn.innerHTML = `<i class="fa-solid fa-stop"></i> Stop ${pattern}`;
+                } else {
+                    btn.classList.remove('active-blink');
+                    const pattern = btn.getAttribute('data-pattern');
+                    let icon = '', text = '';
+                    switch(pattern) {
+                        case 'slow': icon = 'fa-wave-square'; text = 'Slow Blink'; break;
+                        case 'fast': icon = 'fa-bolt'; text = 'Fast Blink'; break;
+                        case 'pulse': icon = 'fa-heart-pulse'; text = 'Pulse'; break;
+                    }
+                    btn.innerHTML = `<i class="fa-solid ${icon}"></i> ${text}`;
+                }
+            });
+        }
+
+        ledOnBtn?.addEventListener('click', () => {
+            currentLedState = 'on';
+            updateLedVisualization('on');
+            writeToArduino('LED:ON');
+        });
+
+        ledOffBtn?.addEventListener('click', () => {
+            currentLedState = 'off';
+            updateLedVisualization('off');
+            writeToArduino('LED:OFF');
+        });
+
+        ledBlinkBtn?.addEventListener('click', () => {
+            if (isBlinking) {
+                currentLedState = 'off';
+                updateLedVisualization('off');
+                writeToArduino('LED:OFF');
+            } else {
+                currentLedState = 'blink';
+                updateLedVisualization('blink');
+                writeToArduino('LED:BLINK');
+            }
+        });
+
+        ledBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const state = btn.getAttribute('data-state');
+                currentLedState = state;
+                updateLedVisualization(state);
+                writeToArduino(`LED:${state.toUpperCase()}`);
+            });
+        });
+
+        patternBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (isBlinking) {
+                    currentLedState = 'off';
+                    updateLedVisualization('off');
+                    writeToArduino('LED:OFF');
+                    return;
+                }
+                
+                const pattern = btn.getAttribute('data-pattern');
+                currentLedState = 'blink';
+                updateLedVisualization('blink');
+                
+                let onTime, offTime;
+                switch(pattern) {
+                    case 'slow': onTime = 1000; offTime = 1000; break;
+                    case 'fast': onTime = 200; offTime = 200; break;
+                    case 'pulse': onTime = 100; offTime = 500; break;
+                    default: onTime = 500; offTime = 500;
+                }
+                writeToArduino(`LED:BLINK,CUSTOM,ON:${onTime},OFF:${offTime}`);
+            });
+        });
+
+        applyCustomBlinkBtn?.addEventListener('click', () => {
+            const onTime = document.getElementById('blink-on-time').value || 500;
+            const offTime = document.getElementById('blink-off-time').value || 500;
+            currentLedState = 'blink';
+            updateLedVisualization('blink');
+            writeToArduino(`LED:BLINK,CUSTOM,ON:${onTime},OFF:${offTime}`);
+            showToast(`Custom blink: ${onTime}ms on, ${offTime}ms off`, "#4c82ff");
+        });
+
+        const quickMotorOn = document.getElementById('quick-motor-on');
+        const quickMotorOff = document.getElementById('quick-motor-off');
+        const quickLedOn = document.getElementById('quick-led-on');
+        const quickLedOff = document.getElementById('quick-led-off');
+
+        quickMotorOn?.addEventListener('click', () => {
+            isMotorRunning = true;
+            updateMotorStatus();
+            writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
+        });
+
+        quickMotorOff?.addEventListener('click', () => {
+            isMotorRunning = false;
+            updateMotorStatus();
+            writeToArduino('MOTOR:STOP');
+        });
+
+        quickLedOn?.addEventListener('click', () => {
+            currentLedState = 'on';
+            updateLedVisualization('on');
+            writeToArduino('LED:ON');
+        });
+
+        quickLedOff?.addEventListener('click', () => {
+            currentLedState = 'off';
+            updateLedVisualization('off');
+            writeToArduino('LED:OFF');
+        });
+
+        function updateSensorData(data) {
+            const tempMatch = data.match(/TEMP:([\d.]+)/);
+            const humMatch = data.match(/HUM:([\d.]+)/);
+            const lightMatch = data.match(/LIGHT:(\d+)/);
+            
+            if (tempMatch) document.getElementById('temp-value').textContent = tempMatch[1];
+            if (humMatch) document.getElementById('humidity-value').textContent = Math.round(humMatch[1]);
+            if (lightMatch) document.getElementById('light-value').textContent = lightMatch[1];
+        }
+
+        setInterval(() => {
+            const uptimeElement = document.getElementById('arduino-uptime');
+            if (uptimeElement) {
+                const uptime = Date.now() - startTime;
+                const hours = Math.floor(uptime / (1000 * 60 * 60));
+                const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
+                uptimeElement.textContent = `${hours}h ${minutes}m`;
+            }
+        }, 1000);
+
+        const logsList = document.getElementById('logs-list');
+        const filterBtns = document.querySelectorAll('.filter-btn');
+        const totalLogsElement = document.getElementById('total-logs');
+        const arduinoLogsElement = document.getElementById('arduino-logs');
+        const systemLogsElement = document.getElementById('system-logs');
+
+        function initializeLogs() {
+            addLog('system', 'System initialized', 'info');
+            updateLogStatistics();
+        }
+
+        function addLog(type, message, iconType = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const log = {
+                id: Date.now(),
+                type: type,
+                message: message,
+                iconType: iconType,
+                timestamp: timestamp,
+                date: new Date().toISOString()
+            };
+            
+            logs.unshift(log);
+            
+            if (logs.length > 100) {
+                logs = logs.slice(0, 100);
+            }
+            
+            updateLogsDisplay();
+            updateLogStatistics();
+            
+            if (currentUser) {
+                saveLogToFirebase(log);
+            }
+        }
+
+        function updateLogsDisplay() {
+            if (!logsList) return;
+            
+            const filteredLogs = currentFilter === 'all' 
+                ? logs 
+                : logs.filter(log => log.type === currentFilter);
+            
+            logsList.innerHTML = '';
+            
+            filteredLogs.forEach(log => {
+                const logItem = document.createElement('div');
+                logItem.className = 'activity-item';
+                logItem.innerHTML = `
+                    <i class="fa-solid fa-${getLogIcon(log.iconType)}"></i>
+                    <span>${log.message}</span>
+                    <small>${log.timestamp}</small>
+                `;
+                logsList.appendChild(logItem);
+            });
+        }
+
+        function getLogIcon(iconType) {
+            const icons = {
+                'info': 'circle-info',
+                'success': 'circle-check',
+                'warning': 'triangle-exclamation',
+                'error': 'circle-exclamation',
+                'arduino': 'microchip',
+                'motor': 'gear',
+                'led': 'lightbulb',
+                'user': 'user'
+            };
+            return icons[iconType] || 'circle-info';
+        }
+
+        function updateLogStatistics() {
+            if (!totalLogsElement) return;
+            
+            const totalLogs = logs.length;
+            const arduinoLogs = logs.filter(log => log.type === 'arduino').length;
+            const systemLogs = logs.filter(log => log.type === 'system').length;
+            
+            totalLogsElement.textContent = totalLogs;
+            arduinoLogsElement.textContent = arduinoLogs;
+            systemLogsElement.textContent = systemLogs;
+        }
+
+        async function saveLogToFirebase(log) {
+            try {
+                await db.collection('logs').add({
+                    ...log,
+                    userId: currentUser.uid,
+                    userEmail: currentUser.email
+                });
+            } catch (error) {
+                console.error('Error saving log to Firebase:', error);
+            }
+        }
+
+        async function loadLogsFromFirebase() {
+            if (!currentUser) return;
+            
+            try {
+                const snapshot = await db.collection('logs')
+                    .where('userId', '==', currentUser.uid)
+                    .orderBy('date', 'desc')
+                    .limit(50)
+                    .get();
+                
+                snapshot.forEach(doc => {
+                    const log = doc.data();
+                    if (!logs.find(existingLog => existingLog.id === log.id)) {
+                        logs.push(log);
+                    }
+                });
+                
+                updateLogsDisplay();
+                updateLogStatistics();
+            } catch (error) {
+                console.error('Error loading logs from Firebase:', error);
+            }
+        }
+
+        filterBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                filterBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentFilter = btn.getAttribute('data-filter');
+                updateLogsDisplay();
+            });
+        });
+
+        const originalConnectToArduino = connectToArduino;
+        connectToArduino = async function() {
+            try {
+                addLog('system', 'Attempting to connect to Arduino...', 'info');
+                await originalConnectToArduino();
+                addLog('arduino', 'Arduino connected successfully', 'success');
+            } catch (error) {
+                addLog('system', 'Failed to connect to Arduino', 'error');
+            }
+        };
+
+        const originalDisconnectFromArduino = disconnectFromArduino;
+        disconnectFromArduino = async function() {
+            addLog('arduino', 'Arduino disconnected', 'info');
+            await originalDisconnectFromArduino();
+        };
+
+        if (motorStartBtn) {
+            motorStartBtn.addEventListener('click', () => {
+                addLog('arduino', `Motor started (Speed: ${currentSpeed}%, Direction: ${currentDirection})`, 'motor');
+            });
+        }
+
+        if (motorStopBtn) {
+            motorStopBtn.addEventListener('click', () => {
+                addLog('arduino', 'Motor stopped', 'motor');
+            });
+        }
+
+        if (ledOnBtn) {
+            ledOnBtn.addEventListener('click', () => {
+                addLog('arduino', 'LED turned ON', 'led');
+            });
+        }
+
+        if (ledOffBtn) {
+            ledOffBtn.addEventListener('click', () => {
+                addLog('arduino', 'LED turned OFF', 'led');
+            });
+        }
+
+        if (ledBlinkBtn) {
+            ledBlinkBtn.addEventListener('click', () => {
+                if (isBlinking) {
+                    addLog('arduino', 'LED blinking stopped', 'led');
+                } else {
+                    addLog('arduino', 'LED blinking started', 'led');
+                }
+            });
+        }
+
+        patternBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const pattern = btn.getAttribute('data-pattern');
+                addLog('arduino', `LED ${pattern} blink pattern started`, 'led');
+            });
+        });
+
+        if (applyCustomBlinkBtn) {
+            applyCustomBlinkBtn.addEventListener('click', () => {
+                const onTime = document.getElementById('blink-on-time').value || 500;
+                const offTime = document.getElementById('blink-off-time').value || 500;
+                addLog('arduino', `Custom blink pattern applied (ON: ${onTime}ms, OFF: ${offTime}ms)`, 'led');
+            });
+        }
+
+        if (quickMotorOn) {
+            quickMotorOn.addEventListener('click', () => {
+                addLog('arduino', 'Motor started from quick actions', 'motor');
+            });
+        }
+
+        if (quickMotorOff) {
+            quickMotorOff.addEventListener('click', () => {
+                addLog('arduino', 'Motor stopped from quick actions', 'motor');
+            });
+        }
+
+        if (quickLedOn) {
+            quickLedOn.addEventListener('click', () => {
+                addLog('arduino', 'LED turned ON from quick actions', 'led');
+            });
+        }
+
+        if (quickLedOff) {
+            quickLedOff.addEventListener('click', () => {
+                addLog('arduino', 'LED turned OFF from quick actions', 'led');
+            });
+        }
+
+        if (speedSlider) {
+            speedSlider.addEventListener('change', () => {
+                addLog('arduino', `Motor speed changed to ${currentSpeed}%`, 'motor');
+            });
+        }
+
+        directionBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const direction = btn.getAttribute('data-direction');
+                addLog('arduino', `Motor direction changed to ${direction}`, 'motor');
+            });
+        });
+
+        presetBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const speed = parseInt(btn.getAttribute('data-speed'));
+                addLog('arduino', `Motor speed preset to ${speed}%`, 'motor');
+            });
+        });
+
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                currentUser = user;
+                const username = user.email.split('@')[0];
+                document.querySelector('.username').textContent = username;
+                document.querySelector('.user-avatar').textContent = username.charAt(0).toUpperCase();
+                
+                addLog('system', `User ${user.email} logged in`, 'user');
+                await loadLogsFromFirebase();
+                initializeAdminManagement(user);
+            }
+        });
+
+        document.querySelector('.logout').addEventListener('click', async (e) => {
+            e.preventDefault();
+            await auth.signOut();
+            showToast('Logged out successfully', '#4c82ff');
+            location.reload();
+        });
+
+        function initializeAdminManagement(user) {
+            currentUser = user;
+            updateAdminInfo(user);
+        }
+
+        function updateAdminInfo(user) {
+            const currentAdminEmail = document.getElementById('current-admin-email');
+            const accountCreatedDate = document.getElementById('account-created-date');
+            const lastLoginDate = document.getElementById('last-login-date');
+            
+            if (currentAdminEmail) {
+                currentAdminEmail.textContent = user.email;
+            }
+            
+            if (accountCreatedDate && user.metadata) {
+                const created = new Date(user.metadata.creationTime);
+                accountCreatedDate.textContent = created.toLocaleDateString();
+            }
+            
+            if (lastLoginDate && user.metadata) {
+                const lastSignIn = new Date(user.metadata.lastSignInTime);
+                lastLoginDate.textContent = lastSignIn.toLocaleString();
+            }
+        }
+
+        const changePasswordBtn = document.getElementById('change-password-btn');
+        changePasswordBtn?.addEventListener('click', async () => {
+            const currentPassword = document.getElementById('current-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            
+            if (!currentPassword || !newPassword || !confirmPassword) {
+                showToast('Please fill all password fields', '#ff4c4c');
+                return;
+            }
+            
+            if (newPassword.length < 6) {
+                showToast('New password must be at least 6 characters', '#ff4c4c');
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                showToast('New passwords do not match', '#ff4c4c');
+                return;
+            }
+            
+            try {
+                addLog('system', 'Attempting to change password', 'user');
+                
+                const credential = firebase.auth.EmailAuthProvider.credential(currentUser.email, currentPassword);
+                await currentUser.reauthenticateWithCredential(credential);
+                
+                await currentUser.updatePassword(newPassword);
+                
+                showToast('Password changed successfully', '#4c82ff');
+                addLog('system', 'Password changed successfully', 'success');
+                
+                document.getElementById('current-password').value = '';
+                document.getElementById('new-password').value = '';
+                document.getElementById('confirm-password').value = '';
+                
+            } catch (error) {
+                console.error('Error changing password:', error);
+                let errorMessage = 'Error changing password';
+                
+                switch(error.code) {
+                    case 'auth/wrong-password':
+                        errorMessage = 'Current password is incorrect';
+                        break;
+                    case 'auth/requires-recent-login':
+                        errorMessage = 'Please re-login to change password';
+                        break;
+                    case 'auth/weak-password':
+                        errorMessage = 'New password is too weak';
+                        break;
+                }
+                
+                showToast(errorMessage, '#ff4c4c');
+                addLog('system', `Failed to change password: ${errorMessage}`, 'error');
+            }
+        });
+
+        const deleteAccountBtn = document.getElementById('delete-account-btn');
+        deleteAccountBtn?.addEventListener('click', async () => {
+            if (!confirm('Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently lost.')) {
+                return;
+            }
+            
+            const password = prompt('Please enter your password to confirm account deletion:');
+            if (!password) return;
+            
+            try {
+                addLog('system', 'Account deletion requested', 'warning');
+                
+                const credential = firebase.auth.EmailAuthProvider.credential(currentUser.email, password);
+                await currentUser.reauthenticateWithCredential(credential);
+                
+                await currentUser.delete();
+                
+                showToast('Account deleted successfully', '#4c82ff');
+                addLog('system', 'Account deleted', 'error');
+                
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+                
+            } catch (error) {
+                console.error('Error deleting account:', error);
+                let errorMessage = 'Error deleting account';
+                
+                switch(error.code) {
+                    case 'auth/wrong-password':
+                        errorMessage = 'Incorrect password';
+                        break;
+                    case 'auth/requires-recent-login':
+                        errorMessage = 'Please re-login to delete account';
+                        break;
+                }
+                
+                showToast(errorMessage, '#ff4c4c');
+                addLog('system', `Failed to delete account: ${errorMessage}`, 'error');
+            }
+        });
+
+        initializeLogs();
+    }
+});

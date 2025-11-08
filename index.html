@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdminMenu - AetherPanel</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+</head>
+<body>
+    <div id="bg-icons">
+        <i class="fa-solid fa-cog bg-icon" style="top:10%; left:5%; animation-duration: 20s;"></i>
+        <i class="fa-solid fa-server bg-icon" style="top:40%; left:25%; animation-duration: 25s;"></i>
+        <i class="fa-solid fa-microchip bg-icon" style="top:70%; left:15%; animation-duration: 22s;"></i>
+        <i class="fa-solid fa-database bg-icon" style="top:20%; left:75%; animation-duration: 18s;"></i>
+        <i class="fa-solid fa-gauge-high bg-icon" style="top:60%; left:60%; animation-duration: 30s;"></i>
+        <i class="fa-solid fa-robot bg-icon" style="top:30%; left:45%; animation-duration: 28s;"></i>
+    </div>
+
+    <div id="navigation">
+        <div id="header">
+            <i id="head-icon" class="fa-solid fa-microchip"></i>
+            <h2>AetherPanel</h2>
+            <p>Admin Panel & Hardware</p>
+        </div>
+
+        <p class="navopt">MAIN</p>
+
+        <div class="nav-item active" data-tab="dashboard">
+            <a href="#dashboard"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+        </div>
+        <div class="nav-item" data-tab="logs">
+            <a href="#logs"><i class="fa-solid fa-file-lines"></i> Logs</a>
+        </div>
+
+        <p class="navopt">AetherPanel</p>
+
+        <div class="nav-item" data-tab="hardware">
+            <a href="#hardware"><i class="fa-solid fa-microchip"></i> Hardware Status</a>
+        </div>
+        <div class="nav-item" data-tab="motor">
+            <a href="#motor"><i class="fa-solid fa-gear"></i> Motor Control</a>
+        </div>
+        <div class="nav-item" data-tab="led">
+            <a href="#led"><i class="fa-solid fa-lightbulb"></i> LED Control</a>
+        </div>
+        <div class="nav-item" data-tab="sensors">
+            <a href="#sensors"><i class="fa-solid fa-gauge"></i> Sensors</a>
+        </div>
+
+        <p class="navopt">ADMIN</p>
+
+        <div class="nav-item" data-tab="admins">
+            <a href="#admins"><i class="fa-solid fa-user-shield"></i> Admin Management</a>
+        </div>
+    </div>
+
+    <div id="top-bar">
+        <div id="search-bar">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" placeholder="Search players, logs, hardware...">
+        </div>
+
+        <div id="user-status-area">
+            <button id="connect-arduino">
+                <i class="fa-solid fa-plug"></i> Connect Arduino
+            </button>
+            <div class="server-status" id="server-status">
+                <i class="fa-solid fa-circle"></i> <span id="status-text">Checking Arduino...</span>
+            </div>
+
+            <div class="user-info dropdown-container">
+                <div class="user-avatar">A</div>
+                <div class="user-text">
+                    <span class="username">Admin</span>
+                    <span class="role">Administrator</span>
+                </div>
+                <i class="fa-solid fa-chevron-down"></i>
+
+                <div class="dropdown-menu">
+                    <a href="#settings"><i class="fa-solid fa-user-gear"></i> Account Settings</a>
+                    <a href="#logout" class="logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="content">
+        <div id="dashboard" class="tab active">
+            <div class="tab-header">
+                <h1>Dashboard</h1>
+                <p>Overview of your system and Arduino status</p>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fa-solid fa-microchip"></i>
+                    </div>
+                    <div class="stat-info">
+                        <h3 id="arduino-status">Checking...</h3>
+                        <p>Arduino Connection</p>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fa-solid fa-users"></i>
+                    </div>
+                    <div class="stat-info">
+                        <h3>0</h3>
+                        <p>Online Players</p>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fa-solid fa-gear"></i>
+                    </div>
+                    <div class="stat-info">
+                        <h3 id="motor-status">Stopped</h3>
+                        <p>Motor Status</p>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fa-solid fa-lightbulb"></i>
+                    </div>
+                    <div class="stat-info">
+                        <h3 id="led-status">Off</h3>
+                        <p>LED Status</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="dashboard-content">
+                <div class="content-card">
+                    <h3>Quick Actions</h3>
+                    <div class="action-buttons">
+                        <button class="action-btn" id="quick-motor-on">
+                            <i class="fa-solid fa-play"></i> Start Motor
+                        </button>
+                        <button class="action-btn" id="quick-motor-off">
+                            <i class="fa-solid fa-stop"></i> Stop Motor
+                        </button>
+                        <button class="action-btn" id="quick-led-on">
+                            <i class="fa-solid fa-lightbulb"></i> LED On
+                        </button>
+                        <button class="action-btn" id="quick-led-off">
+                            <i class="fa-solid fa-lightbulb"></i> LED Off
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="content-card">
+                    <h3>Recent Activity</h3>
+                    <div class="activity-list">
+                        <div class="activity-item">
+                            <i class="fa-solid fa-circle-info"></i>
+                            <span>System initialized</span>
+                            <small>Just now</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="hardware" class="tab">
+            <div class="tab-header">
+                <h1>Hardware Status</h1>
+                <p>Monitor and control your Arduino hardware</p>
+            </div>
+            
+            <div class="hardware-grid">
+                <div class="hardware-card">
+                    <div class="hardware-header">
+                        <i class="fa-solid fa-microchip"></i>
+                        <h3>Arduino Uno R3</h3>
+                    </div>
+                    <div class="hardware-status" id="arduino-detail-status">
+                        <div class="status-indicator checking"></div>
+                        <span>Checking connection...</span>
+                    </div>
+                    <div class="hardware-info">
+                        <div class="info-item">
+                            <span>Board:</span>
+                            <span>Arduino Uno R3</span>
+                        </div>
+                        <div class="info-item">
+                            <span>Last Ping:</span>
+                            <span id="last-ping">--</span>
+                        </div>
+                        <div class="info-item">
+                            <span>Uptime:</span>
+                            <span id="arduino-uptime">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="hardware-card">
+                    <div class="hardware-header">
+                        <i class="fa-solid fa-gear"></i>
+                        <h3>DC Motor</h3>
+                    </div>
+                    <div class="hardware-status">
+                        <div class="status-indicator stopped"></div>
+                        <span id="motor-detail-status">Stopped</span>
+                    </div>
+                    <div class="hardware-controls">
+                        <button class="control-btn success" id="motor-start-btn">
+                            <i class="fa-solid fa-play"></i> Start
+                        </button>
+                        <button class="control-btn danger" id="motor-stop-btn">
+                            <i class="fa-solid fa-stop"></i> Stop
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="hardware-card">
+                    <div class="hardware-header">
+                        <i class="fa-solid fa-lightbulb"></i>
+                        <h3>LED Indicator</h3>
+                    </div>
+                    <div class="hardware-status">
+                        <div class="status-indicator off"></div>
+                        <span id="led-detail-status">Off</span>
+                    </div>
+                    <div class="hardware-controls">
+                        <button class="control-btn success" id="led-on-btn">
+                            <i class="fa-solid fa-power-off"></i> On
+                        </button>
+                        <button class="control-btn danger" id="led-off-btn">
+                            <i class="fa-solid fa-power-off"></i> Off
+                        </button>
+                        <button class="control-btn warning" id="led-blink-btn">
+                            <i class="fa-solid fa-bolt"></i> Blink
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="motor" class="tab">
+            <div class="tab-header">
+                <h1>Motor Control</h1>
+                <p>Precise control over your DC motor</p>
+            </div>
+            
+            <div class="control-panel">
+                <div class="control-card">
+                    <h3>Motor Status</h3>
+                    <div class="motor-visual">
+                        <div class="motor-circle" id="motor-visual">
+                            <i class="fa-solid fa-gear"></i>
+                        </div>
+                        <div class="motor-info">
+                            <div class="speed-display">
+                                <span>Speed:</span>
+                                <span id="speed-value">0%</span>
+                            </div>
+                            <div class="direction-display">
+                                <span>Direction:</span>
+                                <span id="direction-value">Forward</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="control-card">
+                    <h3>Speed Control</h3>
+                    <div class="slider-container">
+                        <input type="range" min="0" max="100" value="0" class="slider" id="speed-slider">
+                        <div class="slider-labels">
+                            <span>0%</span>
+                            <span>50%</span>
+                            <span>100%</span>
+                        </div>
+                    </div>
+                    <div class="preset-buttons">
+                        <button class="preset-btn" data-speed="25">25%</button>
+                        <button class="preset-btn" data-speed="50">50%</button>
+                        <button class="preset-btn" data-speed="75">75%</button>
+                        <button class="preset-btn" data-speed="100">100%</button>
+                    </div>
+                </div>
+                
+                <div class="control-card">
+                    <h3>Direction Control</h3>
+                    <div class="direction-controls">
+                        <button class="direction-btn active" data-direction="forward">
+                            <i class="fa-solid fa-arrow-up"></i> Forward
+                        </button>
+                        <button class="direction-btn" data-direction="backward">
+                            <i class="fa-solid fa-arrow-down"></i> Backward
+                        </button>
+                    </div>
+                    
+                    <h3>Motor Actions</h3>
+                    <div class="action-controls">
+                        <button class="action-control-btn success" id="motor-run-btn">
+                            <i class="fa-solid fa-play"></i> Run Motor
+                        </button>
+                        <button class="action-control-btn danger" id="motor-halt-btn">
+                            <i class="fa-solid fa-stop"></i> Stop Motor
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="led" class="tab">
+            <div class="tab-header">
+                <h1>LED Control</h1>
+                <p>Control LED lights and patterns</p>
+            </div>
+            
+            <div class="led-control-panel">
+                <div class="led-visualization">
+                    <div class="led-display">
+                        <div class="led-bulb" id="led-bulb">
+                            <i class="fa-solid fa-lightbulb"></i>
+                        </div>
+                        <div class="led-status">
+                            <span id="led-mode-text">OFF</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="led-controls">
+                    <div class="control-section">
+                        <h3>Basic Controls</h3>
+                        <div class="button-group">
+                            <button class="led-btn" data-state="on">
+                                <i class="fa-solid fa-power-off"></i> Turn On
+                            </button>
+                            <button class="led-btn" data-state="off">
+                                <i class="fa-solid fa-power-off"></i> Turn Off
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="control-section">
+                        <h3>Blink Patterns</h3>
+                        <div class="button-group">
+                            <button class="pattern-btn" data-pattern="slow">
+                                <i class="fa-solid fa-wave-square"></i> Slow Blink
+                            </button>
+                            <button class="pattern-btn" data-pattern="fast">
+                                <i class="fa-solid fa-bolt"></i> Fast Blink
+                            </button>
+                            <button class="pattern-btn" data-pattern="pulse">
+                                <i class="fa-solid fa-heart-pulse"></i> Pulse
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="control-section">
+                        <h3>Custom Blink</h3>
+                        <div class="custom-blink-controls">
+                            <div class="input-group">
+                                <label>On Duration (ms):</label>
+                                <input type="number" id="blink-on-time" value="500" min="100" max="5000">
+                            </div>
+                            <div class="input-group">
+                                <label>Off Duration (ms):</label>
+                                <input type="number" id="blink-off-time" value="500" min="100" max="5000">
+                            </div>
+                            <button class="custom-pattern-btn" id="apply-custom-blink">
+                                <i class="fa-solid fa-play"></i> Apply Pattern
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="sensors" class="tab">
+            <div class="tab-header">
+                <h1>Sensor Data</h1>
+                <p>Monitor connected sensors (real data)</p>
+            </div>
+            
+            <div class="sensors-grid">
+                <div class="sensor-card">
+                    <div class="sensor-header">
+                        <i class="fa-solid fa-temperature-three-quarters"></i>
+                        <h3>Temperature</h3>
+                    </div>
+                    <div class="sensor-value">
+                        <span id="temp-value">--</span>°C
+                    </div>
+                    <div class="sensor-status">
+                        <div class="sensor-gauge">
+                            <div class="gauge-fill" style="width: 0%"></div>
+                        </div>
+                        <span>--</span>
+                    </div>
+                </div>
+                
+                <div class="sensor-card">
+                    <div class="sensor-header">
+                        <i class="fa-solid fa-droplet"></i>
+                        <h3>Humidity</h3>
+                    </div>
+                    <div class="sensor-value">
+                        <span id="humidity-value">--</span>%
+                    </div>
+                    <div class="sensor-status">
+                        <div class="sensor-gauge">
+                            <div class="gauge-fill" style="width: 0%"></div>
+                        </div>
+                        <span>--</span>
+                    </div>
+                </div>
+                
+                <div class="sensor-card">
+                    <div class="sensor-header">
+                        <i class="fa-solid fa-sun"></i>
+                        <h3>Light Level</h3>
+                    </div>
+                    <div class="sensor-value">
+                        <span id="light-value">--</span> lux
+                    </div>
+                    <div class="sensor-status">
+                        <div class="sensor-gauge">
+                            <div class="gauge-fill" style="width: 0%"></div>
+                        </div>
+                        <span>--</span>
+                    </div>
+                </div>
+                
+                <div class="sensor-card">
+                    <div class="sensor-header">
+                        <i class="fa-solid fa-ruler-horizontal"></i>
+                        <h3>Distance</h3>
+                    </div>
+                    <div class="sensor-value">
+                        <span id="distance-value">--</span> cm
+                    </div>
+                    <div class="sensor-status">
+                        <div class="sensor-gauge">
+                            <div class="gauge-fill" style="width: 0%"></div>
+                        </div>
+                        <span>--</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sensor-chart-container">
+                <h3>Sensor Data Over Time</h3>
+                <div class="chart-placeholder">
+                    <p>Real-time sensor data visualization</p>
+                    <small>Data from connected sensors</small>
+                </div>
+            </div>
+        </div>
+        
+        <div id="logs" class="tab">
+            <div class="tab-header">
+                <h1>System Logs</h1>
+                <p>View real-time system activity and Arduino logs</p>
+            </div>
+            
+            <div class="log-statistics">
+                <div class="log-stat-card">
+                    <h4>Total Logs</h4>
+                    <div class="stat-value" id="total-logs">0</div>
+                    <div class="stat-label">Last 7 days</div>
+                </div>
+                <div class="log-stat-card">
+                    <h4>Arduino Events</h4>
+                    <div class="stat-value" id="arduino-logs">0</div>
+                    <div class="stat-label">Motor/LED actions</div>
+                </div>
+                <div class="log-stat-card">
+                    <h4>System Events</h4>
+                    <div class="stat-value" id="system-logs">0</div>
+                    <div class="stat-label">Admin actions</div>
+                </div>
+            </div>
+            
+            <div class="logs-filters">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="arduino">Arduino</button>
+                <button class="filter-btn" data-filter="system">System</button>
+                <button class="filter-btn" data-filter="admin">Admin</button>
+            </div>
+            
+            <div class="content-card">
+                <h3>Recent Activity</h3>
+                <div class="activity-list" id="logs-list">
+                </div>
+            </div>
+        </div>
+        
+<div id="admins" class="tab">
+    <div class="tab-header">
+        <h1>Admin Management</h1>
+        <p>Manage your account</p>
+    </div>
+    
+    <div class="admin-management">
+        <div class="admin-section">
+            <h4>Account Information</h4>
+            <div class="admin-info-message">
+                <i class="fa-solid fa-circle-info"></i>
+                <span>You are logged in as: <strong id="current-admin-email">Loading...</strong></span>
+            </div>
+            <div class="admin-stats">
+                <div class="admin-stat-item">
+                    <span>Account Created:</span>
+                    <span id="account-created-date">--</span>
+                </div>
+                <div class="admin-stat-item">
+                    <span>Last Login:</span>
+                    <span id="last-login-date">--</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="admin-section">
+            <h4>Change Password</h4>
+            <div class="password-change-form">
+                <div class="input-group">
+                    <label>Current Password</label>
+                    <input type="password" id="current-password" placeholder="Enter current password">
+                </div>
+                <div class="input-group">
+                    <label>New Password</label>
+                    <input type="password" id="new-password" placeholder="Enter new password">
+                </div>
+                <div class="input-group">
+                    <label>Confirm New Password</label>
+                    <input type="password" id="confirm-password" placeholder="Confirm new password">
+                </div>
+                <button class="admin-btn" id="change-password-btn">
+                    <i class="fa-solid fa-key"></i> Change Password
+                </button>
+            </div>
+        </div>
+
+        <div class="admin-section danger-zone">
+                <h4>Danger Zone</h4>
+                <div class="danger-actions">
+                    <div class="danger-warning">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span>These actions are irreversible. Proceed with caution.</span>
+                    </div>
+                    <button class="admin-btn danger" id="delete-account-btn">
+                        <i class="fa-solid fa-trash"></i> Delete My Account
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
