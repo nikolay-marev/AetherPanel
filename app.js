@@ -26,12 +26,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let isConnected = false;
     let startTime = Date.now();
     let isBlinking = false;
-    let currentDirection = 'forward';
-    let currentSpeed = 0;
-    let isMotorRunning = false;
+    let currentAngle = 90;
+    let isServoMoving = false;
     let currentLedState = 'off';
     let logs = [];
     let currentFilter = 'all';
+    let isUpdatingFromRemote = false;
 
     function showToast(msg, color = "#4c82ff") {
         let toast = document.getElementById('toast');
@@ -47,6 +47,93 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => {
             toast.style.opacity = "0";
         }, 4000);
+    }
+
+    async function saveArduinoState(state) {
+        try {
+            await db.collection('arduinoState').doc('current').set({
+                ...state,
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+                lastUpdatedBy: currentUser.email
+            });
+        } catch (error) {
+            console.error('Error saving Arduino state:', error);
+        }
+    }
+
+    async function loadArduinoState() {
+        try {
+            const doc = await db.collection('arduinoState').doc('current').get();
+            if (doc.exists) {
+                return doc.data();
+            }
+            return null;
+        } catch (error) {
+            console.error('Error loading Arduino state:', error);
+            return null;
+        }
+    }
+
+    function setupArduinoStateListener() {
+        db.collection('arduinoState').doc('current')
+            .onSnapshot((doc) => {
+                if (doc.exists) {
+                    const state = doc.data();
+                    updateUIFromGlobalState(state);
+                }
+            });
+    }
+
+    function updateUIFromGlobalState(state) {
+        if (state.lastUpdatedBy === currentUser.email) return;
+        
+        isUpdatingFromRemote = true;
+        
+        if (state.servoMoving !== undefined && state.servoMoving !== isServoMoving) {
+            isServoMoving = state.servoMoving;
+            updateServoStatus();
+        }
+        
+        if (state.servoAngle !== undefined && state.servoAngle !== currentAngle) {
+            currentAngle = state.servoAngle;
+            if (angleSlider) angleSlider.value = currentAngle;
+            if (angleValue) angleValue.textContent = `${currentAngle}°`;
+            updateServoVisualization();
+        }
+        
+        if (state.ledState !== undefined && state.ledState !== currentLedState) {
+            currentLedState = state.ledState;
+            updateLedVisualization(currentLedState);
+        }
+        
+        if (state.isBlinking !== undefined && state.isBlinking !== isBlinking) {
+            isBlinking = state.isBlinking;
+            updateBlinkButtons(isBlinking);
+        }
+        
+        setTimeout(() => {
+            isUpdatingFromRemote = false;
+        }, 100);
+    }
+
+    function updateControlIndicator(state) {
+        let controlIndicator = document.getElementById('control-indicator');
+        if (!controlIndicator) {
+            controlIndicator = document.createElement('div');
+            controlIndicator.id = 'control-indicator';
+            controlIndicator.className = 'control-indicator';
+            document.querySelector('.top-bar').appendChild(controlIndicator);
+        }
+        
+        if (state && state.lastUpdatedBy) {
+            const isCurrentUserControlling = state.lastUpdatedBy === currentUser.email;
+            controlIndicator.innerHTML = `
+                <div class="control-status ${isCurrentUserControlling ? 'you-controlling' : 'other-controlling'}">
+                    <i class="fa-solid ${isCurrentUserControlling ? 'fa-user' : 'fa-users'}"></i>
+                    <span>${isCurrentUserControlling ? 'You are controlling' : `Controlled by: ${state.lastUpdatedBy}`}</span>
+                </div>
+            `;
+        }
     }
 
     document.getElementById('navigation').style.display = 'none';
@@ -133,7 +220,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const tabs = document.querySelectorAll('.tab');
         const dropdownContainer = document.querySelector('.dropdown-container');
         const dropdownMenu = document.querySelector('.dropdown-menu');
-        const toast = document.getElementById('toast');
 
         function activateTab(tabId) {
             navItems.forEach(item => item.classList.remove('active'));
@@ -168,6 +254,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        setupArduinoStateListener();
+        
+        loadArduinoState().then(state => {
+            if (state) {
+                updateUIFromGlobalState(state);
+                updateControlIndicator(state);
+            }
+        });
+
         async function connectToArduino() {
             try {
                 if (!navigator.serial) {
@@ -189,6 +284,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 isConnected = true;
                 updateConnectionStatus(true);
                 showToast("✅ Arduino connected", "#4c82ff");
+                
+                await saveArduinoState({
+                    isConnected: true,
+                    lastConnectedBy: currentUser.email,
+                    lastConnectedAt: new Date().toISOString()
+                });
+                
                 readFromArduino();
                 
             } catch (error) {
@@ -215,6 +317,12 @@ document.addEventListener('DOMContentLoaded', () => {
             isConnected = false;
             updateConnectionStatus(false);
             showToast("🔌 Arduino disconnected", "#ff4c4c");
+            
+            await saveArduinoState({
+                isConnected: false,
+                lastDisconnectedBy: currentUser.email,
+                lastDisconnectedAt: new Date().toISOString()
+            });
         }
 
         async function readFromArduino() {
@@ -242,6 +350,18 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 await writer.write(data + '\n');
                 console.log('Sent:', data);
+                
+                if (!isUpdatingFromRemote) {
+                    await saveArduinoState({
+                        lastCommand: data,
+                        isConnected: true,
+                        servoMoving: isServoMoving,
+                        servoAngle: currentAngle,
+                        ledState: currentLedState,
+                        isBlinking: isBlinking
+                    });
+                }
+                
                 return true;
             } catch (error) {
                 console.error('Write error:', error);
@@ -276,8 +396,25 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (data.includes('SENSOR:')) {
                 updateSensorData(data);
             }
-            else if (data.includes('MOTOR:')) {
-                updateMotorStatusFromArduino(data);
+            else if (data.includes('SERVO:')) {
+                updateServoStatusFromArduino(data);
+            }
+            else if (data.includes('SERVO_ANGLE:')) {
+                const angleMatch = data.match(/SERVO_ANGLE:(\d+)/);
+                if (angleMatch) {
+                    currentAngle = parseInt(angleMatch[1]);
+                    updateServoStatus();
+                    updateServoVisualization();
+                }
+            }
+            else if (data.includes('SERVO_STATUS:')) {
+                const angleMatch = data.match(/ANGLE=(\d+)/);
+                const targetMatch = data.match(/TARGET=(\d+)/);
+                if (angleMatch) {
+                    currentAngle = parseInt(angleMatch[1]);
+                    updateServoStatus();
+                    updateServoVisualization();
+                }
             }
         }
 
@@ -309,102 +446,126 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        const motorStartBtn = document.getElementById('motor-start-btn');
-        const motorStopBtn = document.getElementById('motor-stop-btn');
-        const motorRunBtn = document.getElementById('motor-run-btn');
-        const motorHaltBtn = document.getElementById('motor-halt-btn');
-        const speedSlider = document.getElementById('speed-slider');
-        const speedValue = document.getElementById('speed-value');
-        const directionBtns = document.querySelectorAll('.direction-btn');
-        const presetBtns = document.querySelectorAll('.preset-btn');
-        const motorVisual = document.getElementById('motor-visual');
-        const directionValue = document.getElementById('direction-value');
-        const motorStatus = document.getElementById('motor-status');
-        const motorDetailStatus = document.getElementById('motor-detail-status');
+        const servoMoveBtn = document.getElementById('servo-move-btn');
+        const servoStopBtn = document.getElementById('servo-stop-btn');
+        const servoRunBtn = document.getElementById('servo-run-btn');
+        const servoHaltBtn = document.getElementById('servo-halt-btn');
+        const angleSlider = document.getElementById('angle-slider');
+        const angleValue = document.getElementById('angle-value');
+        const presetAngleBtns = document.querySelectorAll('.preset-angle-btn');
+        const positionBtns = document.querySelectorAll('.position-btn');
+        const servoArm = document.getElementById('servo-arm');
+        const servoStatusText = document.getElementById('servo-status-text');
+        const servoStatus = document.getElementById('servo-status');
+        const servoDetailStatus = document.getElementById('servo-detail-status');
 
-        function updateMotorStatus() {
-            if (isMotorRunning) {
-                motorStatus.textContent = `Running (${currentSpeed}%)`;
-                motorDetailStatus.textContent = `Running (${currentSpeed}%)`;
-                motorVisual.classList.add('running');
-                const statusIndicator = motorDetailStatus.parentElement.querySelector('.status-indicator');
-                statusIndicator.className = 'status-indicator running';
-            } else {
-                motorStatus.textContent = 'Stopped';
-                motorDetailStatus.textContent = 'Stopped';
-                motorVisual.classList.remove('running');
-                const statusIndicator = motorDetailStatus.parentElement.querySelector('.status-indicator');
-                statusIndicator.className = 'status-indicator stopped';
+
+        updateServoVisualization();
+        updateServoStatus();
+
+        function updateServoStatus() {
+            if (servoStatusText) {
+                servoStatusText.textContent = isServoMoving ? 'Moving' : 'Ready';
             }
-            speedValue.textContent = `${currentSpeed}%`;
+            if (servoStatus) {
+                servoStatus.textContent = isServoMoving ? `Moving to ${currentAngle}°` : `Stopped at ${currentAngle}°`;
+            }
+            if (servoDetailStatus) {
+                servoDetailStatus.textContent = isServoMoving ? `Moving to ${currentAngle}°` : `Stopped at ${currentAngle}°`;
+
+                const statusIndicator = servoDetailStatus.parentElement.querySelector('.status-indicator');
+                if (statusIndicator) {
+                    statusIndicator.className = 'status-indicator';
+                    statusIndicator.classList.add(isServoMoving ? 'running' : 'stopped');
+                }
+            }
+            if (angleValue) {
+                angleValue.textContent = `${currentAngle}°`;
+            }
         }
 
-        function updateMotorStatusFromArduino(data) {
-            if (data.includes('RUNNING')) {
-                isMotorRunning = true;
-                const speedMatch = data.match(/(\d+)%/);
-                if (speedMatch) currentSpeed = parseInt(speedMatch[1]);
+        function updateServoVisualization() {
+            if (servoArm) {
+                const rotation = currentAngle - 90; 
+                servoArm.style.transform = `rotate(${rotation}deg)`;
+            }
+        }
+
+        function updateServoStatusFromArduino(data) {
+            if (data.includes('CONNECTED')) {
+                isServoMoving = false;
             } else if (data.includes('STOPPED')) {
-                isMotorRunning = false;
+                isServoMoving = false;
             }
-            updateMotorStatus();
+            updateServoStatus();
         }
 
-        motorStartBtn?.addEventListener('click', () => {
-            isMotorRunning = true;
-            updateMotorStatus();
-            writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
-        });
-
-        motorStopBtn?.addEventListener('click', () => {
-            isMotorRunning = false;
-            updateMotorStatus();
-            writeToArduino('MOTOR:STOP');
-        });
-
-        motorRunBtn?.addEventListener('click', () => {
-            isMotorRunning = true;
-            updateMotorStatus();
-            writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
-        });
-
-        motorHaltBtn?.addEventListener('click', () => {
-            isMotorRunning = false;
-            updateMotorStatus();
-            writeToArduino('MOTOR:STOP');
-        });
-
-        speedSlider?.addEventListener('input', () => {
-            currentSpeed = parseInt(speedSlider.value);
-            updateMotorStatus();
-            if (isMotorRunning) {
-                writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
+        async function moveServoToAngle(angle) {
+            currentAngle = angle;
+            if (angleSlider) angleSlider.value = currentAngle;
+            updateServoStatus();
+            updateServoVisualization();
+            
+            const success = await writeToArduino(`SERVO:ANGLE:${currentAngle}`);
+            if (success) {
+                isServoMoving = true;
+                updateServoStatus();
+                addLog('arduino', `Servo moving to ${currentAngle}°`, 'servo');
             }
+        }
+
+        async function stopServo() {
+            const success = await writeToArduino('SERVO:STOP');
+            if (success) {
+                isServoMoving = false;
+                updateServoStatus();
+                addLog('arduino', 'Servo stopped', 'servo');
+            }
+        }
+
+        async function connectServo() {
+            const success = await writeToArduino('SERVO:CONNECT');
+            if (success) {
+                addLog('arduino', 'Servo connected', 'servo');
+            }
+        }
+
+        servoMoveBtn?.addEventListener('click', () => moveServoToAngle(currentAngle));
+        servoStopBtn?.addEventListener('click', stopServo);
+        servoRunBtn?.addEventListener('click', () => moveServoToAngle(currentAngle));
+        servoHaltBtn?.addEventListener('click', stopServo);
+
+        angleSlider?.addEventListener('input', () => {
+            currentAngle = parseInt(angleSlider.value);
+            updateServoStatus();
+            updateServoVisualization();
         });
 
-        directionBtns.forEach(btn => {
+        angleSlider?.addEventListener('change', () => {
+            moveServoToAngle(currentAngle);
+        });
+
+        presetAngleBtns.forEach(btn => {
             btn.addEventListener('click', () => {
-                directionBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentDirection = btn.getAttribute('data-direction');
-                directionValue.textContent = currentDirection.charAt(0).toUpperCase() + currentDirection.slice(1);
-                if (isMotorRunning) {
-                    writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
-                }
+                const angle = parseInt(btn.getAttribute('data-angle'));
+                moveServoToAngle(angle);
             });
         });
 
-        presetBtns.forEach(btn => {
+        positionBtns.forEach(btn => {
             btn.addEventListener('click', () => {
-                const speed = parseInt(btn.getAttribute('data-speed'));
-                currentSpeed = speed;
-                speedSlider.value = speed;
-                updateMotorStatus();
-                if (isMotorRunning) {
-                    writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
-                }
+                const angle = parseInt(btn.getAttribute('data-angle'));
+                moveServoToAngle(angle);
             });
         });
+
+        const quickServo0 = document.getElementById('quick-servo-0');
+        const quickServo90 = document.getElementById('quick-servo-90');
+        const quickServo180 = document.getElementById('quick-servo-180');
+
+        quickServo0?.addEventListener('click', () => moveServoToAngle(0));
+        quickServo90?.addEventListener('click', () => moveServoToAngle(90));
+        quickServo180?.addEventListener('click', () => moveServoToAngle(180));
 
         const ledOnBtn = document.getElementById('led-on-btn');
         const ledOffBtn = document.getElementById('led-off-btn');
@@ -418,42 +579,30 @@ document.addEventListener('DOMContentLoaded', () => {
         const ledDetailStatus = document.getElementById('led-detail-status');
 
         function updateLedVisualization(state) {
-            const ledBulb = document.getElementById('led-bulb');
-            const ledModeText = document.getElementById('led-mode-text');
-            const ledStatus = document.getElementById('led-status');
-            const ledDetailStatus = document.getElementById('led-detail-status');
-            
-            ledBulb.className = 'led-bulb';
-            
-            switch(state) {
-                case 'on':
-                    ledBulb.classList.add('on');
-                    ledModeText.textContent = 'ON';
-                    ledStatus.textContent = 'On';
-                    ledDetailStatus.textContent = 'On';
-                    break;
-                case 'off':
-                    ledModeText.textContent = 'OFF';
-                    ledStatus.textContent = 'Off';
-                    ledDetailStatus.textContent = 'Off';
-                    break;
-                case 'blink':
-                    ledBulb.classList.add('blink');
-                    ledModeText.textContent = 'BLINK';
-                    ledStatus.textContent = 'Blinking';
-                    ledDetailStatus.textContent = 'Blinking';
-                    break;
+            if (ledBulb) {
+                ledBulb.className = 'led-bulb';
+                if (state === 'on') ledBulb.classList.add('on');
+                if (state === 'blink') ledBulb.classList.add('blink');
             }
             
-            const statusIndicator = ledDetailStatus.parentElement.querySelector('.status-indicator');
-            statusIndicator.className = 'status-indicator';
+            if (ledModeText) {
+                ledModeText.textContent = state.toUpperCase();
+            }
             
-            if (state === 'on') {
-                statusIndicator.classList.add('on');
-            } else if (state === 'blink') {
-                statusIndicator.classList.add('blinking');
-            } else {
-                statusIndicator.classList.add('off');
+            if (ledStatus) {
+                ledStatus.textContent = state === 'on' ? 'On' : state === 'off' ? 'Off' : 'Blinking';
+            }
+            
+            if (ledDetailStatus) {
+                ledDetailStatus.textContent = state === 'on' ? 'On' : state === 'off' ? 'Off' : 'Blinking';
+                
+                const statusIndicator = ledDetailStatus.parentElement.querySelector('.status-indicator');
+                if (statusIndicator) {
+                    statusIndicator.className = 'status-indicator';
+                    if (state === 'on') statusIndicator.classList.add('on');
+                    else if (state === 'blink') statusIndicator.classList.add('blinking');
+                    else statusIndicator.classList.add('off');
+                }
             }
         }
 
@@ -461,118 +610,89 @@ document.addEventListener('DOMContentLoaded', () => {
             patternBtns.forEach(btn => {
                 if (blinking) {
                     btn.classList.add('active-blink');
-                    const pattern = btn.getAttribute('data-pattern');
-                    btn.innerHTML = `<i class="fa-solid fa-stop"></i> Stop ${pattern}`;
                 } else {
                     btn.classList.remove('active-blink');
-                    const pattern = btn.getAttribute('data-pattern');
-                    let icon = '', text = '';
-                    switch(pattern) {
-                        case 'slow': icon = 'fa-wave-square'; text = 'Slow Blink'; break;
-                        case 'fast': icon = 'fa-bolt'; text = 'Fast Blink'; break;
-                        case 'pulse': icon = 'fa-heart-pulse'; text = 'Pulse'; break;
-                    }
-                    btn.innerHTML = `<i class="fa-solid ${icon}"></i> ${text}`;
                 }
             });
         }
 
-        ledOnBtn?.addEventListener('click', () => {
-            currentLedState = 'on';
-            updateLedVisualization('on');
-            writeToArduino('LED:ON');
-        });
+        async function setLedState(state) {
+            currentLedState = state;
+            updateLedVisualization(state);
+            
+            let command = '';
+            switch(state) {
+                case 'on': command = 'LED:ON'; break;
+                case 'off': command = 'LED:OFF'; break;
+                case 'blink': command = 'LED:BLINK'; break;
+            }
+            
+            const success = await writeToArduino(command);
+            if (success) {
+                addLog('arduino', `LED turned ${state.toUpperCase()}`, 'led');
+            }
+        }
 
-        ledOffBtn?.addEventListener('click', () => {
-            currentLedState = 'off';
-            updateLedVisualization('off');
-            writeToArduino('LED:OFF');
-        });
-
-        ledBlinkBtn?.addEventListener('click', () => {
-            if (isBlinking) {
-                currentLedState = 'off';
-                updateLedVisualization('off');
-                writeToArduino('LED:OFF');
-            } else {
+        async function setCustomBlink(onTime, offTime) {
+            const success = await writeToArduino(`LED:BLINK,CUSTOM,ON:${onTime},OFF:${offTime}`);
+            if (success) {
                 currentLedState = 'blink';
                 updateLedVisualization('blink');
-                writeToArduino('LED:BLINK');
+                addLog('arduino', `Custom blink: ON ${onTime}ms, OFF ${offTime}ms`, 'led');
+                showToast(`Custom blink applied: ${onTime}ms on, ${offTime}ms off`, "#4c82ff");
             }
-        });
+        }
+
+        ledOnBtn?.addEventListener('click', () => setLedState('on'));
+        ledOffBtn?.addEventListener('click', () => setLedState('off'));
+        ledBlinkBtn?.addEventListener('click', () => setLedState('blink'));
 
         ledBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const state = btn.getAttribute('data-state');
-                currentLedState = state;
-                updateLedVisualization(state);
-                writeToArduino(`LED:${state.toUpperCase()}`);
+                setLedState(state);
             });
         });
 
         patternBtns.forEach(btn => {
             btn.addEventListener('click', () => {
-                if (isBlinking) {
-                    currentLedState = 'off';
-                    updateLedVisualization('off');
-                    writeToArduino('LED:OFF');
-                    return;
-                }
-                
                 const pattern = btn.getAttribute('data-pattern');
-                currentLedState = 'blink';
-                updateLedVisualization('blink');
+                let onTime = 500, offTime = 500;
                 
-                let onTime, offTime;
                 switch(pattern) {
                     case 'slow': onTime = 1000; offTime = 1000; break;
                     case 'fast': onTime = 200; offTime = 200; break;
                     case 'pulse': onTime = 100; offTime = 500; break;
-                    default: onTime = 500; offTime = 500;
                 }
-                writeToArduino(`LED:BLINK,CUSTOM,ON:${onTime},OFF:${offTime}`);
+                
+                setCustomBlink(onTime, offTime);
             });
         });
 
         applyCustomBlinkBtn?.addEventListener('click', () => {
             const onTime = document.getElementById('blink-on-time').value || 500;
             const offTime = document.getElementById('blink-off-time').value || 500;
-            currentLedState = 'blink';
-            updateLedVisualization('blink');
-            writeToArduino(`LED:BLINK,CUSTOM,ON:${onTime},OFF:${offTime}`);
-            showToast(`Custom blink: ${onTime}ms on, ${offTime}ms off`, "#4c82ff");
+            setCustomBlink(onTime, offTime);
         });
 
-        const quickMotorOn = document.getElementById('quick-motor-on');
-        const quickMotorOff = document.getElementById('quick-motor-off');
         const quickLedOn = document.getElementById('quick-led-on');
         const quickLedOff = document.getElementById('quick-led-off');
 
-        quickMotorOn?.addEventListener('click', () => {
-            isMotorRunning = true;
-            updateMotorStatus();
-            writeToArduino(`MOTOR:RUN,SPEED:${currentSpeed},DIR:${currentDirection}`);
-        });
+        quickLedOn?.addEventListener('click', () => setLedState('on'));
+        quickLedOff?.addEventListener('click', () => setLedState('off'));
 
-        quickMotorOff?.addEventListener('click', () => {
-            isMotorRunning = false;
-            updateMotorStatus();
-            writeToArduino('MOTOR:STOP');
-        });
+        const originalConnectToArduino = connectToArduino;
+        connectToArduino = async function() {
+            await originalConnectToArduino();
+            if (isConnected) {
+                setTimeout(() => {
+                    connectServo();
+                }, 1000);
+            }
+        };
 
-        quickLedOn?.addEventListener('click', () => {
-            currentLedState = 'on';
-            updateLedVisualization('on');
-            writeToArduino('LED:ON');
-        });
-
-        quickLedOff?.addEventListener('click', () => {
-            currentLedState = 'off';
-            updateLedVisualization('off');
-            writeToArduino('LED:OFF');
-        });
-
-        function updateSensorData(data) {
+       
+function updateSensorData(data) {
             const tempMatch = data.match(/TEMP:([\d.]+)/);
             const humMatch = data.match(/HUM:([\d.]+)/);
             const lightMatch = data.match(/LIGHT:(\d+)/);
@@ -592,11 +712,18 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, 1000);
 
+        setInterval(() => {
+            const uptimeElement = document.getElementById('arduino-uptime');
+            if (uptimeElement) {
+                const uptime = Date.now() - startTime;
+                const hours = Math.floor(uptime / (1000 * 60 * 60));
+                const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
+                uptimeElement.textContent = `${hours}h ${minutes}m`;
+            }
+        }, 1000);
+
         const logsList = document.getElementById('logs-list');
         const filterBtns = document.querySelectorAll('.filter-btn');
-        const totalLogsElement = document.getElementById('total-logs');
-        const arduinoLogsElement = document.getElementById('arduino-logs');
-        const systemLogsElement = document.getElementById('system-logs');
 
         function initializeLogs() {
             addLog('system', 'System initialized', 'info');
@@ -622,10 +749,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             updateLogsDisplay();
             updateLogStatistics();
-            
-            if (currentUser) {
-                saveLogToFirebase(log);
-            }
         }
 
         function updateLogsDisplay() {
@@ -656,7 +779,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 'warning': 'triangle-exclamation',
                 'error': 'circle-exclamation',
                 'arduino': 'microchip',
-                'motor': 'gear',
+                'servo': 'gear',
                 'led': 'lightbulb',
                 'user': 'user'
             };
@@ -664,6 +787,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function updateLogStatistics() {
+            const totalLogsElement = document.getElementById('total-logs');
+            const arduinoLogsElement = document.getElementById('arduino-logs');
+            const systemLogsElement = document.getElementById('system-logs');
+            
             if (!totalLogsElement) return;
             
             const totalLogs = logs.length;
@@ -675,158 +802,12 @@ document.addEventListener('DOMContentLoaded', () => {
             systemLogsElement.textContent = systemLogs;
         }
 
-        async function saveLogToFirebase(log) {
-            try {
-                await db.collection('logs').add({
-                    ...log,
-                    userId: currentUser.uid,
-                    userEmail: currentUser.email
-                });
-            } catch (error) {
-                console.error('Error saving log to Firebase:', error);
-            }
-        }
-
-        async function loadLogsFromFirebase() {
-            if (!currentUser) return;
-            
-            try {
-                const snapshot = await db.collection('logs')
-                    .where('userId', '==', currentUser.uid)
-                    .orderBy('date', 'desc')
-                    .limit(50)
-                    .get();
-                
-                snapshot.forEach(doc => {
-                    const log = doc.data();
-                    if (!logs.find(existingLog => existingLog.id === log.id)) {
-                        logs.push(log);
-                    }
-                });
-                
-                updateLogsDisplay();
-                updateLogStatistics();
-            } catch (error) {
-                console.error('Error loading logs from Firebase:', error);
-            }
-        }
-
         filterBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 filterBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentFilter = btn.getAttribute('data-filter');
                 updateLogsDisplay();
-            });
-        });
-
-        const originalConnectToArduino = connectToArduino;
-        connectToArduino = async function() {
-            try {
-                addLog('system', 'Attempting to connect to Arduino...', 'info');
-                await originalConnectToArduino();
-                addLog('arduino', 'Arduino connected successfully', 'success');
-            } catch (error) {
-                addLog('system', 'Failed to connect to Arduino', 'error');
-            }
-        };
-
-        const originalDisconnectFromArduino = disconnectFromArduino;
-        disconnectFromArduino = async function() {
-            addLog('arduino', 'Arduino disconnected', 'info');
-            await originalDisconnectFromArduino();
-        };
-
-        if (motorStartBtn) {
-            motorStartBtn.addEventListener('click', () => {
-                addLog('arduino', `Motor started (Speed: ${currentSpeed}%, Direction: ${currentDirection})`, 'motor');
-            });
-        }
-
-        if (motorStopBtn) {
-            motorStopBtn.addEventListener('click', () => {
-                addLog('arduino', 'Motor stopped', 'motor');
-            });
-        }
-
-        if (ledOnBtn) {
-            ledOnBtn.addEventListener('click', () => {
-                addLog('arduino', 'LED turned ON', 'led');
-            });
-        }
-
-        if (ledOffBtn) {
-            ledOffBtn.addEventListener('click', () => {
-                addLog('arduino', 'LED turned OFF', 'led');
-            });
-        }
-
-        if (ledBlinkBtn) {
-            ledBlinkBtn.addEventListener('click', () => {
-                if (isBlinking) {
-                    addLog('arduino', 'LED blinking stopped', 'led');
-                } else {
-                    addLog('arduino', 'LED blinking started', 'led');
-                }
-            });
-        }
-
-        patternBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const pattern = btn.getAttribute('data-pattern');
-                addLog('arduino', `LED ${pattern} blink pattern started`, 'led');
-            });
-        });
-
-        if (applyCustomBlinkBtn) {
-            applyCustomBlinkBtn.addEventListener('click', () => {
-                const onTime = document.getElementById('blink-on-time').value || 500;
-                const offTime = document.getElementById('blink-off-time').value || 500;
-                addLog('arduino', `Custom blink pattern applied (ON: ${onTime}ms, OFF: ${offTime}ms)`, 'led');
-            });
-        }
-
-        if (quickMotorOn) {
-            quickMotorOn.addEventListener('click', () => {
-                addLog('arduino', 'Motor started from quick actions', 'motor');
-            });
-        }
-
-        if (quickMotorOff) {
-            quickMotorOff.addEventListener('click', () => {
-                addLog('arduino', 'Motor stopped from quick actions', 'motor');
-            });
-        }
-
-        if (quickLedOn) {
-            quickLedOn.addEventListener('click', () => {
-                addLog('arduino', 'LED turned ON from quick actions', 'led');
-            });
-        }
-
-        if (quickLedOff) {
-            quickLedOff.addEventListener('click', () => {
-                addLog('arduino', 'LED turned OFF from quick actions', 'led');
-            });
-        }
-
-        if (speedSlider) {
-            speedSlider.addEventListener('change', () => {
-                addLog('arduino', `Motor speed changed to ${currentSpeed}%`, 'motor');
-            });
-        }
-
-        directionBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const direction = btn.getAttribute('data-direction');
-                addLog('arduino', `Motor direction changed to ${direction}`, 'motor');
-            });
-        });
-
-        presetBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const speed = parseInt(btn.getAttribute('data-speed'));
-                addLog('arduino', `Motor speed preset to ${speed}%`, 'motor');
             });
         });
 
@@ -838,7 +819,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.querySelector('.user-avatar').textContent = username.charAt(0).toUpperCase();
                 
                 addLog('system', `User ${user.email} logged in`, 'user');
-                await loadLogsFromFirebase();
                 initializeAdminManagement(user);
             }
         });
@@ -875,7 +855,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const changePasswordBtn = document.getElementById('change-password-btn');
+const changePasswordBtn = document.getElementById('change-password-btn');
         changePasswordBtn?.addEventListener('click', async () => {
             const currentPassword = document.getElementById('current-password').value;
             const newPassword = document.getElementById('new-password').value;
@@ -973,6 +953,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 addLog('system', `Failed to delete account: ${errorMessage}`, 'error');
             }
         });
+
 
         initializeLogs();
     }
