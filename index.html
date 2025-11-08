@@ -41,8 +41,8 @@
         <div class="nav-item" data-tab="hardware">
             <a href="#hardware"><i class="fa-solid fa-microchip"></i> Hardware Status</a>
         </div>
-        <div class="nav-item" data-tab="motor">
-            <a href="#motor"><i class="fa-solid fa-gear"></i> Motor Control</a>
+        <div class="nav-item" data-tab="servo">
+            <a href="#servo"><i class="fa-solid fa-robot"></i> Servo Control</a>
         </div>
         <div class="nav-item" data-tab="led">
             <a href="#led"><i class="fa-solid fa-lightbulb"></i> LED Control</a>
@@ -81,7 +81,6 @@
                 <i class="fa-solid fa-chevron-down"></i>
 
                 <div class="dropdown-menu">
-                    <a href="#settings"><i class="fa-solid fa-user-gear"></i> Account Settings</a>
                     <a href="#logout" class="logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
                 </div>
             </div>
@@ -118,11 +117,11 @@
                 
                 <div class="stat-card">
                     <div class="stat-icon">
-                        <i class="fa-solid fa-gear"></i>
+                        <i class="fa-solid fa-robot"></i>
                     </div>
                     <div class="stat-info">
-                        <h3 id="motor-status">Stopped</h3>
-                        <p>Motor Status</p>
+                        <h3 id="servo-status">Stopped</h3>
+                        <p>Servo Status</p>
                     </div>
                 </div>
                 
@@ -141,11 +140,14 @@
                 <div class="content-card">
                     <h3>Quick Actions</h3>
                     <div class="action-buttons">
-                        <button class="action-btn" id="quick-motor-on">
-                            <i class="fa-solid fa-play"></i> Start Motor
+                        <button class="action-btn" id="quick-servo-0">
+                            <i class="fa-solid fa-arrow-left"></i> Servo 0°
                         </button>
-                        <button class="action-btn" id="quick-motor-off">
-                            <i class="fa-solid fa-stop"></i> Stop Motor
+                        <button class="action-btn" id="quick-servo-90">
+                            <i class="fa-solid fa-arrow-up"></i> Servo 90°
+                        </button>
+                        <button class="action-btn" id="quick-servo-180">
+                            <i class="fa-solid fa-arrow-right"></i> Servo 180°
                         </button>
                         <button class="action-btn" id="quick-led-on">
                             <i class="fa-solid fa-lightbulb"></i> LED On
@@ -203,18 +205,18 @@
                 
                 <div class="hardware-card">
                     <div class="hardware-header">
-                        <i class="fa-solid fa-gear"></i>
-                        <h3>DC Motor</h3>
+                        <i class="fa-solid fa-robot"></i>
+                        <h3>Servo Motor 9g</h3>
                     </div>
                     <div class="hardware-status">
                         <div class="status-indicator stopped"></div>
-                        <span id="motor-detail-status">Stopped</span>
+                        <span id="servo-detail-status">Stopped at 90°</span>
                     </div>
                     <div class="hardware-controls">
-                        <button class="control-btn success" id="motor-start-btn">
-                            <i class="fa-solid fa-play"></i> Start
+                        <button class="control-btn success" id="servo-move-btn">
+                            <i class="fa-solid fa-play"></i> Move
                         </button>
-                        <button class="control-btn danger" id="motor-stop-btn">
+                        <button class="control-btn danger" id="servo-stop-btn">
                             <i class="fa-solid fa-stop"></i> Stop
                         </button>
                     </div>
@@ -244,70 +246,65 @@
             </div>
         </div>
 
-        <div id="motor" class="tab">
+        <div id="servo" class="tab">
             <div class="tab-header">
-                <h1>Motor Control</h1>
-                <p>Precise control over your DC motor</p>
+                <h1>Servo Control</h1>
+                <p>Precise control over your Servo Motor 9g</p>
             </div>
             
             <div class="control-panel">
                 <div class="control-card">
-                    <h3>Motor Status</h3>
-                    <div class="motor-visual">
-                        <div class="motor-circle" id="motor-visual">
-                            <i class="fa-solid fa-gear"></i>
+                    <h3>Servo Status</h3>
+                    <div class="servo-visual">
+                        <div class="servo-body">
+                            <div class="servo-arm" id="servo-arm"></div>
                         </div>
-                        <div class="motor-info">
-                            <div class="speed-display">
-                                <span>Speed:</span>
-                                <span id="speed-value">0%</span>
+                        <div class="servo-info">
+                            <div class="angle-display">
+                                <span>Current Angle:</span>
+                                <span id="angle-value">90°</span>
                             </div>
-                            <div class="direction-display">
-                                <span>Direction:</span>
-                                <span id="direction-value">Forward</span>
+                            <div class="status-display">
+                                <span>Status:</span>
+                                <span id="servo-status-text">Ready</span>
                             </div>
                         </div>
                     </div>
                 </div>
                 
                 <div class="control-card">
-                    <h3>Speed Control</h3>
+                    <h3>Angle Control</h3>
                     <div class="slider-container">
-                        <input type="range" min="0" max="100" value="0" class="slider" id="speed-slider">
+                        <input type="range" min="0" max="180" value="90" class="slider" id="angle-slider">
                         <div class="slider-labels">
-                            <span>0%</span>
-                            <span>50%</span>
-                            <span>100%</span>
+                            <span>0°</span>
+                            <span>90°</span>
+                            <span>180°</span>
                         </div>
                     </div>
                     <div class="preset-buttons">
-                        <button class="preset-btn" data-speed="25">25%</button>
-                        <button class="preset-btn" data-speed="50">50%</button>
-                        <button class="preset-btn" data-speed="75">75%</button>
-                        <button class="preset-btn" data-speed="100">100%</button>
+                        <button class="preset-angle-btn" data-angle="0">0°</button>
+                        <button class="preset-angle-btn" data-angle="45">45°</button>
+                        <button class="preset-angle-btn" data-angle="90">90°</button>
+                        <button class="preset-angle-btn" data-angle="135">135°</button>
+                        <button class="preset-angle-btn" data-angle="180">180°</button>
                     </div>
                 </div>
                 
                 <div class="control-card">
-                    <h3>Direction Control</h3>
-                    <div class="direction-controls">
-                        <button class="direction-btn active" data-direction="forward">
-                            <i class="fa-solid fa-arrow-up"></i> Forward
+                    <h3>Quick Positions</h3>
+                    <div class="quick-positions">
+                        <button class="position-btn" data-angle="0">
+                            <i class="fa-solid fa-arrow-left"></i> 0° (Left)
                         </button>
-                        <button class="direction-btn" data-direction="backward">
-                            <i class="fa-solid fa-arrow-down"></i> Backward
+                        <button class="position-btn" data-angle="90">
+                            <i class="fa-solid fa-arrow-up"></i> 90° (Center)
                         </button>
-                    </div>
-                    
-                    <h3>Motor Actions</h3>
-                    <div class="action-controls">
-                        <button class="action-control-btn success" id="motor-run-btn">
-                            <i class="fa-solid fa-play"></i> Run Motor
-                        </button>
-                        <button class="action-control-btn danger" id="motor-halt-btn">
-                            <i class="fa-solid fa-stop"></i> Stop Motor
+                        <button class="position-btn" data-angle="180">
+                            <i class="fa-solid fa-arrow-right"></i> 180° (Right)
                         </button>
                     </div>
+            
                 </div>
             </div>
         </div>
@@ -474,7 +471,7 @@
                 <div class="log-stat-card">
                     <h4>Arduino Events</h4>
                     <div class="stat-value" id="arduino-logs">0</div>
-                    <div class="stat-label">Motor/LED actions</div>
+                    <div class="stat-label">Servo/LED actions</div>
                 </div>
                 <div class="log-stat-card">
                     <h4>System Events</h4>
@@ -497,62 +494,63 @@
             </div>
         </div>
         
-<div id="admins" class="tab">
-    <div class="tab-header">
-        <h1>Admin Management</h1>
-        <p>Manage your account</p>
-    </div>
-    
-    <div class="admin-management">
-        <div class="admin-section">
-            <h4>Account Information</h4>
-            <div class="admin-info-message">
-                <i class="fa-solid fa-circle-info"></i>
-                <span>You are logged in as: <strong id="current-admin-email">Loading...</strong></span>
+        <div id="admins" class="tab">
+            <div class="tab-header">
+                <h1>Admin Management</h1>
+                <p>Manage your account</p>
             </div>
-            <div class="admin-stats">
-                <div class="admin-stat-item">
-                    <span>Account Created:</span>
-                    <span id="account-created-date">--</span>
-                </div>
-                <div class="admin-stat-item">
-                    <span>Last Login:</span>
-                    <span id="last-login-date">--</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="admin-section">
-            <h4>Change Password</h4>
-            <div class="password-change-form">
-                <div class="input-group">
-                    <label>Current Password</label>
-                    <input type="password" id="current-password" placeholder="Enter current password">
-                </div>
-                <div class="input-group">
-                    <label>New Password</label>
-                    <input type="password" id="new-password" placeholder="Enter new password">
-                </div>
-                <div class="input-group">
-                    <label>Confirm New Password</label>
-                    <input type="password" id="confirm-password" placeholder="Confirm new password">
-                </div>
-                <button class="admin-btn" id="change-password-btn">
-                    <i class="fa-solid fa-key"></i> Change Password
-                </button>
-            </div>
-        </div>
-
-        <div class="admin-section danger-zone">
-                <h4>Danger Zone</h4>
-                <div class="danger-actions">
-                    <div class="danger-warning">
-                        <i class="fa-solid fa-triangle-exclamation"></i>
-                        <span>These actions are irreversible. Proceed with caution.</span>
+            
+            <div class="admin-management">
+                <div class="admin-section">
+                    <h4>Account Information</h4>
+                    <div class="admin-info-message">
+                        <i class="fa-solid fa-circle-info"></i>
+                        <span>You are logged in as: <strong id="current-admin-email">Loading...</strong></span>
                     </div>
-                    <button class="admin-btn danger" id="delete-account-btn">
-                        <i class="fa-solid fa-trash"></i> Delete My Account
-                    </button>
+                    <div class="admin-stats">
+                        <div class="admin-stat-item">
+                            <span>Account Created:</span>
+                            <span id="account-created-date">--</span>
+                        </div>
+                        <div class="admin-stat-item">
+                            <span>Last Login:</span>
+                            <span id="last-login-date">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="admin-section">
+                    <h4>Change Password</h4>
+                    <div class="password-change-form">
+                        <div class="input-group">
+                            <label>Current Password</label>
+                            <input type="password" id="current-password" placeholder="Enter current password">
+                        </div>
+                        <div class="input-group">
+                            <label>New Password</label>
+                            <input type="password" id="new-password" placeholder="Enter new password">
+                        </div>
+                        <div class="input-group">
+                            <label>Confirm New Password</label>
+                            <input type="password" id="confirm-password" placeholder="Confirm new password">
+                        </div>
+                        <button class="admin-btn" id="change-password-btn">
+                            <i class="fa-solid fa-key"></i> Change Password
+                        </button>
+                    </div>
+                </div>
+
+                <div class="admin-section danger-zone">
+                    <h4>Danger Zone</h4>
+                    <div class="danger-actions">
+                        <div class="danger-warning">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                            <span>These actions are irreversible. Proceed with caution.</span>
+                        </div>
+                        <button class="admin-btn danger" id="delete-account-btn">
+                            <i class="fa-solid fa-trash"></i> Delete My Account
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
