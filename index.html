@@ -296,7 +296,6 @@
                             <i class="fa-solid fa-arrow-right"></i> 180° (Right)
                         </button>
                     </div>
-                    
                 </div>
             </div>
         </div>
@@ -369,11 +368,13 @@
 
         <div id="sensors" class="tab">
             <div class="tab-header">
-                <h1>Sensor Data</h1>
-                <p>Monitor connected sensors (real data)</p>
+                <h1>Sensor Dashboard</h1>
+                <p>Real-time monitoring and analytics</p>
             </div>
             
+            <!-- Current Sensor Values -->
             <div class="sensors-grid">
+                <!-- Temperature Card -->
                 <div class="sensor-card">
                     <div class="sensor-header">
                         <i class="fa-solid fa-temperature-three-quarters"></i>
@@ -382,14 +383,9 @@
                     <div class="sensor-value">
                         <span id="temp-value">--</span>°C
                     </div>
-                    <div class="sensor-status">
-                        <div class="sensor-gauge">
-                            <div class="gauge-fill" style="width: 0%"></div>
-                        </div>
-                        <span>--</span>
-                    </div>
                 </div>
                 
+                <!-- Humidity Card -->
                 <div class="sensor-card">
                     <div class="sensor-header">
                         <i class="fa-solid fa-droplet"></i>
@@ -398,30 +394,20 @@
                     <div class="sensor-value">
                         <span id="humidity-value">--</span>%
                     </div>
-                    <div class="sensor-status">
-                        <div class="sensor-gauge">
-                            <div class="gauge-fill" style="width: 0%"></div>
-                        </div>
-                        <span>--</span>
-                    </div>
                 </div>
                 
+                <!-- Light Card -->
                 <div class="sensor-card">
                     <div class="sensor-header">
                         <i class="fa-solid fa-sun"></i>
                         <h3>Light Level</h3>
                     </div>
                     <div class="sensor-value">
-                        <span id="light-value">--</span> lux
-                    </div>
-                    <div class="sensor-status">
-                        <div class="sensor-gauge">
-                            <div class="gauge-fill" style="width: 0%"></div>
-                        </div>
-                        <span>--</span>
+                        <span id="light-value">-- lux</span>
                     </div>
                 </div>
                 
+                <!-- Distance Card -->
                 <div class="sensor-card">
                     <div class="sensor-header">
                         <i class="fa-solid fa-ruler-horizontal"></i>
@@ -430,22 +416,28 @@
                     <div class="sensor-value">
                         <span id="distance-value">--</span> cm
                     </div>
-                    <div class="sensor-status">
-                        <div class="sensor-gauge">
-                            <div class="gauge-fill" style="width: 0%"></div>
-                        </div>
-                        <span>--</span>
-                    </div>
                 </div>
             </div>
             
-            <div class="sensor-chart-container">
-                <h3>Sensor Data Over Time</h3>
-                <div class="chart-placeholder">
-                    <p>Real-time sensor data visualization</p>
-                    <small>Data from connected sensors</small>
+            <!-- Charts Section -->
+            <div class="charts-section">
+                <h3>Live Charts</h3>
+                <div class="charts-grid">
+                    <div class="chart-container">
+                        <h4>Temperature History</h4>
+                        <div class="chart-placeholder" id="temp-chart">
+                            <p>Live temperature chart</p>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <h4>Light Level History</h4>
+                        <div class="chart-placeholder" id="light-chart">
+                            <p>Live light level chart</p>
+                        </div>
+                    </div>
                 </div>
             </div>
+
         </div>
         
         <div id="logs" class="tab">
