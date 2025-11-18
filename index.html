@@ -61,7 +61,7 @@
     <div id="top-bar">
         <div id="search-bar">
             <i class="fa-solid fa-magnifying-glass"></i>
-            <input type="text" placeholder="Search players, logs, hardware...">
+            <input type="text" id="search-input" placeholder="Search logs, hardware, sensors...">
         </div>
 
         <div id="user-status-area">
@@ -107,16 +107,6 @@
                 
                 <div class="stat-card">
                     <div class="stat-icon">
-                        <i class="fa-solid fa-users"></i>
-                    </div>
-                    <div class="stat-info">
-                        <h3>0</h3>
-                        <p>Online Players</p>
-                    </div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-icon">
                         <i class="fa-solid fa-robot"></i>
                     </div>
                     <div class="stat-info">
@@ -155,6 +145,27 @@
                         <button class="action-btn" id="quick-led-off">
                             <i class="fa-solid fa-lightbulb"></i> LED Off
                         </button>
+                    </div>
+                </div>
+                
+                <div class="content-card">
+                    <h3>Sensor Values</h3>
+                    <div class="activity-list">
+                        <div class="activity-item">
+                            <i class="fa-solid fa-temperature-three-quarters"></i>
+                            <span>Temperature: <strong id="dashboard-temp">--</strong></span>
+                            <small>Live</small>
+                        </div>
+                        <div class="activity-item">
+                            <i class="fa-solid fa-droplet"></i>
+                            <span>Humidity: <strong id="dashboard-humidity">--</strong></span>
+                            <small>Live</small>
+                        </div>
+                        <div class="activity-item">
+                            <i class="fa-solid fa-sun"></i>
+                            <span>Light Level: <strong id="dashboard-light">--</strong></span>
+                            <small>Live</small>
+                        </div>
                     </div>
                 </div>
                 
